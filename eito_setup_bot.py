@@ -874,14 +874,19 @@ async def sugerencia_error(ctx, error):
 # =====================================================================
 #  GAMING: STEAM (publica una tarjeta con el perfil de Steam)
 # =====================================================================
+# Base para convertir un accountID (32 bits) en un SteamID64 (formula oficial)
+STEAM_ID64_BASE = 76561197960265728
+
+
 def normalizar_steam(entrada):
     """Convierte lo que ponga el usuario en una URL valida de perfil de Steam.
 
     Acepta:
       - URL completa: https://steamcommunity.com/id/nombre
       - URL completa: https://steamcommunity.com/profiles/7656...
-      - Vanity a secas: nombre  -> https://steamcommunity.com/id/nombre
-      - SteamID64 a secas: 7656... -> https://steamcommunity.com/profiles/7656...
+      - SteamID64 a secas: 7656... -> /profiles/7656...
+      - AccountID / friend code numerico: 1214417234 -> se convierte a SteamID64
+      - Vanity a secas (con letras): nombre -> /id/nombre
     Devuelve la URL o None si no es valido.
     """
     entrada = entrada.strip()
@@ -900,7 +905,16 @@ def normalizar_steam(entrada):
     if re.fullmatch(r"7656\d{13}", entrada):
         return f"https://steamcommunity.com/profiles/{entrada}"
 
-    # Vanity name suelto (letras, numeros, guion bajo, guion)
+    # Numero puro que NO es SteamID64 -> tratarlo como accountID / friend code
+    if entrada.isdigit():
+        account_id = int(entrada)
+        # Rango razonable de un accountID de 32 bits (evita numeros absurdos)
+        if 0 < account_id < 2**32:
+            steam_id64 = STEAM_ID64_BASE + account_id
+            return f"https://steamcommunity.com/profiles/{steam_id64}"
+        return None
+
+    # Vanity name suelto (debe contener letras, no ser solo numeros)
     if re.fullmatch(r"[\w-]{2,32}", entrada):
         return f"https://steamcommunity.com/id/{entrada}"
 
