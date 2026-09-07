@@ -30,6 +30,10 @@ CANAL_NIVELES = "📈・niveles"
 CANAL_SUGERENCIAS = "💡・sugerencias"
 CANAL_LOGS = "🛡️・registros"
 CANAL_STEAM = "🎮・perfiles-steam"
+CANAL_BUSCAR_PARTIDA = "🎮・buscar-partida"
+
+# --- ROL DE AVISOS DE PARTIDA (opt-in) ---
+ROL_LEFTSITO = "Leftsito"
 
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
 ROL_AUTOMATICO = "COMUNIDAD"
@@ -67,6 +71,7 @@ ESTRUCTURA = [
         ("📜・scripts", "text"), ("🗂️・colecciones", "text"),
         (CANAL_STEAM, "text")]},
     {"categoria": "🔊 PA JUGARR", "canales": [
+        (CANAL_BUSCAR_PARTIDA, "text"),
         ("🎧 Sala de espera", "voice"), ("🎮 Juegos", "voice")]},
     {"categoria": "🛡️ STAFF", "canales": [
         (CANAL_LOGS, "text")]},
@@ -78,6 +83,7 @@ ROLES = [
     ("・∴Moderador∴・", 0x9B59B6, True, True),
     ("🤖 carl-bot", 0x95A5A6, False, False),
     ("COMUNIDAD", 0x2ECC71, True, True),
+    ("Leftsito", 0xE74C3C, False, True),
     ("━━ Plataforma ━━", 0x2F3136, True, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
@@ -134,6 +140,11 @@ ARCHIVO_WARNS = "avisos.json"
 # Configuracion de XP
 XP_POR_MENSAJE = 15        # XP que se gana por mensaje
 COOLDOWN_XP = 60           # segundos entre ganancias de XP (anti-spam)
+
+# Cooldown del comando !jugar (segundos) para no abusar de la mencion
+COOLDOWN_JUGAR = 600       # 10 minutos por persona
+# Control en memoria del ultimo !jugar: {(guild_id, user_id): timestamp}
+ultimo_jugar = {}
 
 # Cache en memoria: {"guild_id": {"user_id": xp}}
 xp_data = {}
@@ -195,15 +206,18 @@ async def registrar_log(guild, texto):
 class BotonRol(discord.ui.Button):
     """Boton que da o quita un rol al pulsarlo."""
 
-    def __init__(self, etiqueta, nombre_rol, emoji):
+    def __init__(self, etiqueta, nombre_rol, emoji,
+                 estilo=discord.ButtonStyle.secondary,
+                 mensaje_al_activar=None):
         # custom_id fijo para que la vista sea persistente tras reiniciar el bot
         super().__init__(
             label=etiqueta,
             emoji=emoji,
-            style=discord.ButtonStyle.secondary,
+            style=estilo,
             custom_id=f"rol::{nombre_rol}",
         )
         self.nombre_rol = nombre_rol
+        self.mensaje_al_activar = mensaje_al_activar
 
     async def callback(self, interaction: discord.Interaction):
         rol = discord.utils.get(interaction.guild.roles, name=self.nombre_rol)
@@ -223,15 +237,24 @@ class BotonRol(discord.ui.Button):
                 )
             else:
                 await miembro.add_roles(rol)
-                await interaction.response.send_message(
-                    f"➕ Te di el rol **{self.nombre_rol}**.", ephemeral=True
-                )
+                # Mensaje personalizado al activar (ej. explicacion del rol Leftsito)
+                texto = self.mensaje_al_activar or f"➕ Te di el rol **{self.nombre_rol}**."
+                await interaction.response.send_message(texto, ephemeral=True)
         except discord.Forbidden:
             await interaction.response.send_message(
                 "❌ No tengo permisos para darte ese rol. "
                 "Mi rol debe estar por encima del rol a asignar.",
                 ephemeral=True,
             )
+
+
+# Mensaje que ve el usuario al activarse el rol Leftsito
+MENSAJE_LEFTSITO = (
+    "🔔 **¡Ahora eres Leftsito!**\n\n"
+    "Recibirás una notificación cuando alguien use `!jugar` para buscar gente "
+    f"con quién jugar (en {CANAL_BUSCAR_PARTIDA}).\n\n"
+    "Vuelve a pulsar el botón cuando quieras dejar de recibir avisos. 🎮"
+)
 
 
 class PanelRoles(discord.ui.View):
@@ -241,6 +264,12 @@ class PanelRoles(discord.ui.View):
         super().__init__(timeout=None)  # persistente
         for etiqueta, nombre_rol, emoji in ROLES_PLATAFORMA + ROLES_REGION:
             self.add_item(BotonRol(etiqueta, nombre_rol, emoji))
+        # Boton especial para el rol de avisos de partida
+        self.add_item(BotonRol(
+            "Avisos de partida", ROL_LEFTSITO, "🔔",
+            estilo=discord.ButtonStyle.success,
+            mensaje_al_activar=MENSAJE_LEFTSITO,
+        ))
 
 
 # =====================================================================
@@ -258,7 +287,7 @@ async def on_ready():
     print("Admin: !setup !setupsteam !reglas !panelroles !presentaciones !anuncio")
     print("Moderación: !borrar !kick !ban !mute !unmute !warn !warns")
     print("Comunidad: !ping !miembros !avatar !serverinfo !ayuda !nivel !top")
-    print("Utilidad: !encuesta !sugerencia")
+    print("Utilidad: !encuesta !sugerencia !steam !jugar")
 
 
 @bot.event
@@ -981,6 +1010,79 @@ async def steam_error(ctx, error):
 
 
 # =====================================================================
+#  GAMING: JUGAR (convoca a los Leftsito para buscar partida)
+# =====================================================================
+@bot.command(name="jugar")
+async def jugar(ctx, *, mensaje: str = ""):
+    guild = ctx.guild
+    clave = (str(guild.id), str(ctx.author.id))
+    ahora = time.time()
+
+    # Anti-spam: cooldown por persona
+    restante = COOLDOWN_JUGAR - (ahora - ultimo_jugar.get(clave, 0))
+    if restante > 0:
+        minutos = int(restante // 60)
+        segundos = int(restante % 60)
+        aviso = await ctx.send(
+            f"⏳ Espera un poco antes de volver a convocar "
+            f"({minutos}m {segundos}s)."
+        )
+        await aviso.delete(delay=8)
+        return
+
+    rol = discord.utils.get(guild.roles, name=ROL_LEFTSITO)
+    if rol is None:
+        await ctx.send(
+            f"⚠️ No existe el rol {ROL_LEFTSITO}. Un admin debe correr !setup."
+        )
+        return
+
+    canal = buscar_canal(guild, CANAL_BUSCAR_PARTIDA)
+    if canal is None:
+        await ctx.send(
+            f"⚠️ No encuentro el canal {CANAL_BUSCAR_PARTIDA}. Un admin debe correr !setup."
+        )
+        return
+
+    # Registrar el uso para el cooldown
+    ultimo_jugar[clave] = ahora
+
+    texto_extra = mensaje.strip() if mensaje.strip() else "¡Se busca gente para jugar!"
+    embed = discord.Embed(
+        title="🎮 ¡Alguien quiere jugar!",
+        description=(
+            f"**{ctx.author.display_name}** está buscando compañía.\n\n"
+            f"💬 {texto_extra}\n\n"
+            "Reacciona con ✅ si te apuntas."
+        ),
+        colour=discord.Colour(0xE74C3C),
+    )
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+
+    # Mencionar al rol Leftsito (permitido explicitamente)
+    mensaje_enviado = await canal.send(
+        content=f"{rol.mention}",
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(roles=[rol]),
+    )
+    await mensaje_enviado.add_reaction("✅")
+
+    # Confirmar al que convoco y limpiar su comando si es en otro canal
+    if canal != ctx.channel:
+        aviso = await ctx.send(f"✅ ¡Convocatoria enviada a {canal.mention}!")
+        await aviso.delete(delay=6)
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.NotFound):
+        pass
+
+
+@jugar.error
+async def jugar_error(ctx, error):
+    await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
 #  COMUNIDAD: NIVEL (ver tu nivel y XP)
 # =====================================================================
 @bot.command(name="nivel")
@@ -1145,7 +1247,8 @@ async def ayuda(ctx):
         value=(
             "`!encuesta <pregunta>` — crea una encuesta 👍👎\n"
             "`!sugerencia <texto>` — envía una sugerencia con votación\n"
-            "`!steam <enlace o SteamID>` — publica tu perfil de Steam"
+            "`!steam <enlace o SteamID>` — publica tu perfil de Steam\n"
+            "`!jugar [mensaje]` — avisa a los Leftsito para buscar partida"
         ),
         inline=False,
     )
