@@ -1,0 +1,25 @@
+# --- Secretos y configuracion local ---
+.env
+*.env
+!.env.example
+
+# --- Datos del bot (no subir la "memoria") ---
+niveles.json
+avisos.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+
+# --- Editores / SO ---
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
