@@ -255,7 +255,7 @@ async def on_ready():
     # Registrar la vista persistente para que los botones funcionen tras reiniciar
     bot.add_view(PanelRoles())
     print(f"✅ Conectado como {bot.user}")
-    print("Admin: !setup !reglas !panelroles !presentaciones !anuncio")
+    print("Admin: !setup !setupsteam !reglas !panelroles !presentaciones !anuncio")
     print("Moderación: !borrar !kick !ban !mute !unmute !warn !warns")
     print("Comunidad: !ping !miembros !avatar !serverinfo !ayuda !nivel !top")
     print("Utilidad: !encuesta !sugerencia")
@@ -362,9 +362,77 @@ async def setup(ctx):
             n_can += 1
     await ctx.send(f"✅ ¡Listo! Canales creados: {n_can} 🎉")
 
+    # Configurar el canal de perfiles de Steam como "solo-bot"
+    await configurar_canal_steam(ctx)
+
+
+async def configurar_canal_steam(ctx):
+    """Deja el canal de Steam solo-lectura para @everyone (solo el bot escribe)
+    y publica un mensaje fijo de instrucciones si aun no existe."""
+    guild = ctx.guild
+    canal = buscar_canal(guild, CANAL_STEAM)
+    if canal is None:
+        return
+
+    # Permisos: todos ven pero no escriben; el bot si puede escribir
+    try:
+        await canal.set_permissions(
+            guild.default_role, send_messages=False, add_reactions=False
+        )
+        if guild.me.top_role:
+            await canal.set_permissions(guild.me, send_messages=True)
+    except discord.Forbidden:
+        await ctx.send(
+            f"⚠️ No pude ajustar permisos de {canal.mention}. "
+            "Revisa que mi rol esté arriba y tenga Gestionar canales."
+        )
+
+    # Mensaje fijo de instrucciones (solo si el canal esta vacio)
+    historial = [m async for m in canal.history(limit=1)]
+    if not historial:
+        embed = discord.Embed(
+            title="🎮 Comparte tu perfil de Steam",
+            description=(
+                "Este canal es un **escaparate de perfiles** para buscar con quién jugar.\n\n"
+                "Para aparecer aquí, escribe en 🤖・comandos:\n"
+                "```\n!steam <tu enlace de Steam>\n```\n"
+                "Ejemplo:\n"
+                "`!steam https://steamcommunity.com/id/tunombre`\n\n"
+                "El bot publicará tu tarjeta aquí automáticamente. "
+                "Este canal se mantiene limpio: solo el bot escribe. 🤖"
+            ),
+            colour=discord.Colour(0x1B2838),
+        )
+        try:
+            await canal.send(embed=embed)
+        except discord.Forbidden:
+            pass
+
 
 @setup.error
 async def setup_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: SETUPSTEAM (reconfigura solo el canal de Steam)
+# =====================================================================
+@bot.command(name="setupsteam")
+@commands.has_permissions(administrator=True)
+async def setupsteam(ctx):
+    canal = buscar_canal(ctx.guild, CANAL_STEAM)
+    if canal is None:
+        await ctx.send(f"⚠️ No encuentro {CANAL_STEAM}. Corre !setup primero.")
+        return
+    await configurar_canal_steam(ctx)
+    await ctx.send(f"✅ Canal {canal.mention} configurado como solo-bot.")
+
+
+@setupsteam.error
+async def setupsteam_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ Necesitas ser Administrador.")
     else:
@@ -866,11 +934,25 @@ async def steam(ctx, *, entrada: str):
 
     embed.set_footer(text="¡Añádelo y a matar zombies juntos! 🧟")
 
-    # Publicar en el canal de perfiles si existe; si no, en el canal actual
-    canal = buscar_canal(ctx.guild, CANAL_STEAM) or ctx.channel
+    # Publicar SIEMPRE en el canal de perfiles (Opcion A: escaparate solo-bot)
+    canal = buscar_canal(ctx.guild, CANAL_STEAM)
+    if canal is None:
+        await ctx.send(
+            f"⚠️ No encuentro el canal {CANAL_STEAM}. Un admin debe correr !setup."
+        )
+        return
+
     await canal.send(embed=embed)
-    if canal != ctx.channel:
-        await ctx.send(f"✅ ¡Tu perfil se publicó en {canal.mention}!")
+
+    # Borrar el mensaje del comando para mantener limpio el chat
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.NotFound):
+        pass
+
+    # Confirmacion breve que se auto-borra a los 5s (no ensucia)
+    aviso = await ctx.send(f"✅ {ctx.author.mention}, tu perfil se publicó en {canal.mention}")
+    await aviso.delete(delay=5)
 
 
 @steam.error
@@ -1020,44 +1102,17 @@ async def serverinfo(ctx):
 # =====================================================================
 @bot.command(name="ayuda")
 async def ayuda(ctx):
+    perms = ctx.author.guild_permissions
+    es_admin = perms.administrator
+    es_mod = perms.kick_members or perms.ban_members or perms.moderate_members
+
     embed = discord.Embed(
         title="📖 Comandos de EITO",
         description="Todos los comandos usan el prefijo `!`",
         colour=discord.Colour(0x5865F2),
     )
-    embed.add_field(
-        name="🔧 Administración (solo admins)",
-        value=(
-            "`!setup` — crea canales, categorías y roles\n"
-            "`!reglas` — publica las reglas\n"
-            "`!panelroles` — publica el panel de roles con botones\n"
-            "`!presentaciones` — publica la plantilla de presentación\n"
-            "`!anuncio <texto>` — publica un anuncio"
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🛡️ Moderación",
-        value=(
-            "`!borrar <n>` — borra los últimos N mensajes (1–100)\n"
-            "`!kick @usuario [razón]` — expulsa a un miembro\n"
-            "`!ban @usuario [razón]` — banea a un miembro\n"
-            "`!mute @usuario <duración> [razón]` — silencia (ej. 10m, 2h)\n"
-            "`!unmute @usuario` — quita el silencio\n"
-            "`!warn @usuario [razón]` — avisa a un miembro\n"
-            "`!warns [@usuario]` — muestra los avisos"
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="📊 Utilidad",
-        value=(
-            "`!encuesta <pregunta>` — crea una encuesta 👍👎\n"
-            "`!sugerencia <texto>` — envía una sugerencia con votación\n"
-            "`!steam <enlace o SteamID>` — publica tu perfil de Steam"
-        ),
-        inline=False,
-    )
+
+    # Seccion visible para TODOS
     embed.add_field(
         name="🎮 Comunidad",
         value=(
@@ -1071,6 +1126,47 @@ async def ayuda(ctx):
         ),
         inline=False,
     )
+    embed.add_field(
+        name="📊 Utilidad",
+        value=(
+            "`!encuesta <pregunta>` — crea una encuesta 👍👎\n"
+            "`!sugerencia <texto>` — envía una sugerencia con votación\n"
+            "`!steam <enlace o SteamID>` — publica tu perfil de Steam"
+        ),
+        inline=False,
+    )
+
+    # Solo para moderadores
+    if es_mod or es_admin:
+        embed.add_field(
+            name="🛡️ Moderación",
+            value=(
+                "`!borrar <n>` — borra los últimos N mensajes (1–100)\n"
+                "`!kick @usuario [razón]` — expulsa a un miembro\n"
+                "`!ban @usuario [razón]` — banea a un miembro\n"
+                "`!mute @usuario <duración> [razón]` — silencia (ej. 10m, 2h)\n"
+                "`!unmute @usuario` — quita el silencio\n"
+                "`!warn @usuario [razón]` — avisa a un miembro\n"
+                "`!warns [@usuario]` — muestra los avisos"
+            ),
+            inline=False,
+        )
+
+    # Solo para admins
+    if es_admin:
+        embed.add_field(
+            name="🔧 Administración",
+            value=(
+                "`!setup` — crea canales, categorías y roles\n"
+                "`!setupsteam` — reconfigura el canal de perfiles\n"
+                "`!reglas` — publica las reglas\n"
+                "`!panelroles` — publica el panel de roles con botones\n"
+                "`!presentaciones` — publica la plantilla de presentación\n"
+                "`!anuncio <texto>` — publica un anuncio"
+            ),
+            inline=False,
+        )
+
     embed.set_footer(text="Ganas XP al escribir. Además: bienvenida y rol automático al entrar 🎉")
     await ctx.send(embed=embed)
 
