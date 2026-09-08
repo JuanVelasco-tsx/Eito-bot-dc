@@ -124,6 +124,46 @@ TEXTO_PRESENTACIONES = (
     "¡Así te conocemos mejor! 🎉"
 )
 
+# --- GUIA DE INICIO (respuestas a las dudas mas comunes) ---
+# Se rellena en tiempo real con las menciones a los canales reales.
+def construir_guia(guild):
+    """Devuelve el texto de la guia con los canales del server mencionados."""
+    def canal_txt(nombre):
+        c = discord.utils.get(guild.text_channels, name=nombre)
+        return c.mention if c else f"#{nombre}"
+
+    def canal_voz(nombre):
+        c = discord.utils.get(guild.voice_channels, name=nombre)
+        return c.mention if c else nombre
+
+    return (
+        "👋 **¡Bienvenido/a a EITO! Empieza por aquí** 👇\n\n"
+
+        "**🕹️ ¿Quieres jugar Left 4 Dead con alguien?**\n"
+        f"No preguntes en {canal_txt('💬・general')} 😅. Escribe `!jugar` en "
+        f"{canal_txt('🤖・comandos')} y avisará a todos los que quieren jugar.\n"
+        f"Activa el rol **🔔 Avisos de partida** en {canal_txt('🎭・roles')} "
+        "para enterarte cuando alguien busque gente.\n\n"
+
+        "**📦 ¿Buscas packs, scripts o addons?**\n"
+        f"Están en la sección **🧟 LEFT 4 DEAD**: {canal_txt('📦・packs')}, "
+        f"{canal_txt('⚙️・autoexec')}, {canal_txt('📜・scripts')} y "
+        f"{canal_txt('🗂️・colecciones')}.\n\n"
+
+        "**🎭 ¿Cómo consigo mis roles?**\n"
+        f"Ve a {canal_txt('🎭・roles')} y pulsa los botones de tu plataforma "
+        "(PC, XBOX...) y región.\n\n"
+
+        "**🎮 ¿Cómo comparto mi Steam?**\n"
+        f"Escribe `!steam <tu enlace>` en {canal_txt('🤖・comandos')} y tu perfil "
+        f"aparecerá en {canal_txt('🎮・perfiles-steam')}.\n\n"
+
+        "**❓ ¿Qué comandos hay?**\n"
+        f"Escribe `!ayuda` en {canal_txt('🤖・comandos')} para ver todo lo que puedes hacer.\n\n"
+
+        "**📜 Y lo más importante:** lee las reglas y respeta a la comunidad. 🎉"
+    )
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # Necesario para la bienvenida automatica (on_member_join)
@@ -284,7 +324,7 @@ async def on_ready():
     # Registrar la vista persistente para que los botones funcionen tras reiniciar
     bot.add_view(PanelRoles())
     print(f"✅ Conectado como {bot.user}")
-    print("Admin: !setup !setupsteam !reglas !panelroles !presentaciones !anuncio")
+    print("Admin: !setup !setupsteam !reglas !info !panelroles !presentaciones !anuncio")
     print("Moderación: !borrar !kick !ban !mute !unmute !warn !warns")
     print("Comunidad: !ping !miembros !avatar !serverinfo !ayuda !nivel !top")
     print("Utilidad: !encuesta !sugerencia !steam !jugar")
@@ -489,6 +529,33 @@ async def reglas(ctx):
 
 @reglas.error
 async def reglas_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: INFO / GUIA (publica la guia de inicio para los que llegan)
+# =====================================================================
+@bot.command(name="info", aliases=["guia"])
+@commands.has_permissions(administrator=True)
+async def info(ctx):
+    guild = ctx.guild
+    # Por defecto se publica junto a las reglas; si no existe, en el canal actual
+    canal = discord.utils.get(guild.text_channels, name=CANAL_REGLAS) or ctx.channel
+    embed = discord.Embed(
+        title="📌 Guía rápida de EITO",
+        description=construir_guia(guild),
+        colour=discord.Colour(0x2ECC71),
+    )
+    await canal.send(embed=embed)
+    if canal != ctx.channel:
+        await ctx.send(f"✅ Guía publicada en {canal.mention}")
+
+
+@info.error
+async def info_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ Necesitas ser Administrador.")
     else:
@@ -1277,6 +1344,7 @@ async def ayuda(ctx):
                 "`!setup` — crea canales, categorías y roles\n"
                 "`!setupsteam` — reconfigura el canal de perfiles\n"
                 "`!reglas` — publica las reglas\n"
+                "`!info` — publica la guía de inicio\n"
                 "`!panelroles` — publica el panel de roles con botones\n"
                 "`!presentaciones` — publica la plantilla de presentación\n"
                 "`!anuncio <texto>` — publica un anuncio"
