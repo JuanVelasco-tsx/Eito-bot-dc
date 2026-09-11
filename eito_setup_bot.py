@@ -7,6 +7,7 @@ import time
 from datetime import timedelta
 
 import discord
+from aiohttp import web
 from discord.ext import commands
 
 # Cargar variables desde un archivo .env local (si existe).
@@ -19,6 +20,11 @@ except ImportError:
 
 # --- TOKEN ---
 TOKEN = os.getenv("DISCORD_TOKEN", "PON_TU_TOKEN_AQUI")
+
+# --- WEBHOOK HTTP (para notificaciones de nuevas versiones via GitHub Actions) ---
+RELEASE_CHANNEL_ID = os.getenv("RELEASE_CHANNEL_ID")
+RELEASE_WEBHOOK_SECRET = os.getenv("RELEASE_WEBHOOK_SECRET")
+WEBHOOK_PORT = int(os.getenv("PORT", "8080"))
 
 # --- NOMBRES DE CANALES CLAVE (deben coincidir con los creados en el setup) ---
 CANAL_BIENVENIDA = "👋・bienvenida"
@@ -169,6 +175,76 @@ intents.message_content = True
 intents.members = True  # Necesario para la bienvenida automatica (on_member_join)
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+
+
+# =====================================================================
+#  SERVIDOR WEB INTERNO (webhook HTTP para notificaciones de releases)
+# =====================================================================
+async def handle_release_webhook(request):
+    """POST /release-webhook - recibe notificaciones de nuevas versiones."""
+    if not RELEASE_WEBHOOK_SECRET:
+        return web.json_response(
+            {"error": "RELEASE_WEBHOOK_SECRET no configurado"}, status=503)
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {RELEASE_WEBHOOK_SECRET}":
+        return web.json_response({"error": "No autorizado"}, status=401)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON invalido"}, status=400)
+    version = data.get("version")
+    if not version:
+        return web.json_response({"error": "Falta el campo version"}, status=400)
+    changelog = data.get("changelog", "Sin changelog.")
+    if not RELEASE_CHANNEL_ID:
+        return web.json_response(
+            {"error": "RELEASE_CHANNEL_ID no configurado"}, status=503)
+    try:
+        canal = bot.get_channel(int(RELEASE_CHANNEL_ID))
+        if canal is None:
+            canal = await bot.fetch_channel(int(RELEASE_CHANNEL_ID))
+    except Exception as e:
+        return web.json_response(
+            {"error": f"No se pudo encontrar el canal: {e}"}, status=500)
+    embed = discord.Embed(
+        title=f"\U0001f680 Nueva version: {version}",
+        description=changelog,
+        colour=discord.Colour(0x58ACFA),
+    )
+    try:
+        await canal.send(embed=embed)
+    except Exception as e:
+        return web.json_response(
+            {"error": f"No se pudo enviar el mensaje: {e}"}, status=500)
+    return web.json_response({"ok": True, "version": version}, status=200)
+
+
+async def handle_health(request):
+    """GET / - health check basico para Railway."""
+    return web.json_response({"status": "ok", "bot": str(bot.user)})
+
+
+async def start_web_server():
+    """Arranca el servidor web aiohttp en el loop actual sin bloquear al bot."""
+    app = web.Application()
+    app.router.add_post("/release-webhook", handle_release_webhook)
+    app.router.add_get("/", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", WEBHOOK_PORT)
+    await site.start()
+    print(f"\U0001f310 Servidor web escuchando en 0.0.0.0:{WEBHOOK_PORT}")
+
+
+@bot.event
+async def setup_hook():
+    """Se ejecuta antes de on_ready, cuando el loop de asyncio ya esta corriendo."""
+    if not RELEASE_CHANNEL_ID:
+        print("\u26a0\ufe0f  RELEASE_CHANNEL_ID no definido. El endpoint /release-webhook no podra enviar mensajes.")
+    if not RELEASE_WEBHOOK_SECRET:
+        print("\u26a0\ufe0f  RELEASE_WEBHOOK_SECRET no definido. El endpoint /release-webhook rechazara todas las peticiones.")
+    bot.loop.create_task(start_web_server())
 
 
 # =====================================================================
