@@ -793,6 +793,47 @@ async def anuncio_error(ctx, error):
 
 
 # =====================================================================
+#  COMANDO: DARNIVEL (asigna un nivel exacto a un miembro, solo testing)
+# =====================================================================
+@bot.command(name="darnivel")
+@commands.has_permissions(administrator=True)
+async def darnivel(ctx, nivel: int, miembro: discord.Member = None):
+    miembro = miembro or ctx.author
+    if nivel < 0:
+        await ctx.send("❌ El nivel debe ser 0 o mayor.")
+        return
+
+    gid = str(ctx.guild.id)
+    uid = str(miembro.id)
+    xp_data.setdefault(gid, {})
+    nivel_previo = nivel_desde_xp(xp_data[gid].get(uid, 0))
+
+    xp_total = sum(xp_necesaria(n) for n in range(nivel))
+    xp_data[gid][uid] = xp_total
+    _guardar_json(ARCHIVO_XP, xp_data)
+
+    nivel_nuevo = nivel_desde_xp(xp_total)
+    await ctx.send(
+        f"✅ {miembro.mention} pasó del nivel **{nivel_previo}** al nivel "
+        f"**{nivel_nuevo}** ({xp_total} XP total)."
+    )
+
+
+@darnivel.error
+async def darnivel_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Uso: `!darnivel <nivel> [@usuario]`")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("❌ El nivel debe ser un número entero.")
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ No encuentro a ese miembro.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
 #  MODERACIÓN: BORRAR MENSAJES
 # =====================================================================
 @bot.command(name="borrar")
@@ -1485,7 +1526,8 @@ async def ayuda(ctx):
                 "`!info` — publica la guía de inicio\n"
                 "`!panelroles` — publica el panel de roles con botones\n"
                 "`!presentaciones` — publica la plantilla de presentación\n"
-                "`!anuncio <texto>` — publica un anuncio"
+                "`!anuncio <texto>` — publica un anuncio\n"
+                "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)"
             ),
             inline=False,
         )
