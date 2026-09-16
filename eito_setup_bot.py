@@ -41,6 +41,9 @@ CANAL_BUSCAR_PARTIDA = "🎮・buscar-partida"
 # --- ROL DE AVISOS DE PARTIDA (opt-in) ---
 ROL_LEFTSITO = "Leftsito"
 
+CANAL_MODLOADER = "🔧・l4d2-mod-loader"
+ROL_MODLOADER = "🔔 Mod Loader"
+
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
 ROL_AUTOMATICO = "COMUNIDAD"
 
@@ -75,7 +78,7 @@ ESTRUCTURA = [
     {"categoria": "🧟 LEFT 4 DEAD", "canales": [
         ("📦・packs", "text"), ("⚙️・autoexec", "text"),
         ("📜・scripts", "text"), ("🗂️・colecciones", "text"),
-        (CANAL_STEAM, "text")]},
+        (CANAL_STEAM, "text"), (CANAL_MODLOADER, "text")]},
     {"categoria": "🔊 PA JUGARR", "canales": [
         (CANAL_BUSCAR_PARTIDA, "text"),
         ("🎧 Sala de espera", "voice"), ("🎮 Juegos", "voice")]},
@@ -90,6 +93,7 @@ ROLES = [
     ("🤖 carl-bot", 0x95A5A6, False, False),
     ("COMUNIDAD", 0x2ECC71, True, True),
     ("Leftsito", 0xE74C3C, False, True),
+    ("🔔 Mod Loader", 0x9184D9, False, True),
     ("━━ Plataforma ━━", 0x2F3136, True, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
@@ -197,23 +201,42 @@ async def handle_release_webhook(request):
     if not version:
         return web.json_response({"error": "Falta el campo version"}, status=400)
     changelog = data.get("changelog", "Sin changelog.")
-    if not RELEASE_CHANNEL_ID:
-        return web.json_response(
-            {"error": "RELEASE_CHANNEL_ID no configurado"}, status=503)
-    try:
-        canal = bot.get_channel(int(RELEASE_CHANNEL_ID))
+
+    canal = None
+    if RELEASE_CHANNEL_ID:
+        try:
+            canal = bot.get_channel(int(RELEASE_CHANNEL_ID))
+            if canal is None:
+                canal = await bot.fetch_channel(int(RELEASE_CHANNEL_ID))
+        except Exception as e:
+            return web.json_response(
+                {"error": f"No se pudo encontrar el canal: {e}"}, status=500)
+    else:
+        for guild in bot.guilds:
+            canal = discord.utils.get(guild.text_channels, name=CANAL_MODLOADER)
+            if canal is not None:
+                break
         if canal is None:
-            canal = await bot.fetch_channel(int(RELEASE_CHANNEL_ID))
-    except Exception as e:
-        return web.json_response(
-            {"error": f"No se pudo encontrar el canal: {e}"}, status=500)
+            return web.json_response(
+                {"error": f"No se encontro el canal {CANAL_MODLOADER}. Corre !setup primero."},
+                status=500)
+
+    rol = discord.utils.get(canal.guild.roles, name=ROL_MODLOADER) if canal.guild else None
+
     embed = discord.Embed(
         title=f"\U0001f680 Nueva version: {version}",
         description=changelog,
-        colour=discord.Colour(0x58ACFA),
+        colour=discord.Colour(0x9184D9),
     )
     try:
-        await canal.send(embed=embed)
+        if rol is not None:
+            await canal.send(
+                content=rol.mention,
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(roles=[rol]),
+            )
+        else:
+            await canal.send(embed=embed)
     except Exception as e:
         return web.json_response(
             {"error": f"No se pudo enviar el mensaje: {e}"}, status=500)
@@ -372,6 +395,13 @@ MENSAJE_LEFTSITO = (
     "Vuelve a pulsar el botón cuando quieras dejar de recibir avisos. 🎮"
 )
 
+# Mensaje que ve el usuario al activarse el rol Mod Loader
+MENSAJE_MODLOADER = (
+    "🛠️ **¡Ahora recibirás avisos de nuevas versiones del L4D2 Mod Loader!**\n\n"
+    f"Te voy a mencionar en {CANAL_MODLOADER} cada vez que salga una actualización.\n\n"
+    "Vuelve a pulsar el botón cuando quieras dejar de recibirlos. 🎮"
+)
+
 
 class PanelRoles(discord.ui.View):
     """Vista persistente con todos los botones de roles."""
@@ -385,6 +415,11 @@ class PanelRoles(discord.ui.View):
             "Avisos de partida", ROL_LEFTSITO, "🔔",
             estilo=discord.ButtonStyle.success,
             mensaje_al_activar=MENSAJE_LEFTSITO,
+        ))
+        self.add_item(BotonRol(
+            "Avisos Mod Loader", ROL_MODLOADER, "🛠️",
+            estilo=discord.ButtonStyle.success,
+            mensaje_al_activar=MENSAJE_MODLOADER,
         ))
 
 
@@ -509,6 +544,7 @@ async def setup(ctx):
 
     # Configurar el canal de perfiles de Steam como "solo-bot"
     await configurar_canal_steam(ctx)
+    await configurar_canal_modloader(ctx)
 
 
 async def configurar_canal_steam(ctx):
@@ -547,6 +583,32 @@ async def configurar_canal_steam(ctx):
                 "Este canal se mantiene limpio: solo el bot escribe. 🤖"
             ),
             colour=discord.Colour(0x1B2838),
+        )
+        try:
+            await canal.send(embed=embed)
+        except discord.Forbidden:
+            pass
+
+
+async def configurar_canal_modloader(ctx):
+    """Publica un mensaje fijo de presentacion en el canal del Mod Loader
+    si el canal esta vacio."""
+    guild = ctx.guild
+    canal = buscar_canal(guild, CANAL_MODLOADER)
+    if canal is None:
+        return
+    historial = [m async for m in canal.history(limit=1)]
+    if not historial:
+        embed = discord.Embed(
+            title="🔧 L4D2 Versus Addon Manager",
+            description=(
+                "Gestiona tus addons de la Workshop para jugar Versus con "
+                "varios combinados a la vez, sin reempaquetar VPKs a mano.\n\n"
+                "📥 **Descarga:** https://www.mediafire.com/file/d512mqnuww1co2v/L4D2+Versus+Addon+Manager_v1.0.0-beta.exe/file\n\n"
+                f"Activá el rol **Avisos Mod Loader** en {CANAL_ROLES} para "
+                "que te avise apenas salga una actualización nueva."
+            ),
+            colour=discord.Colour(0x9184D9),
         )
         try:
             await canal.send(embed=embed)
