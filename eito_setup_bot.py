@@ -47,6 +47,13 @@ ROL_MODLOADER = "🔔 Mod Loader"
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
 ROL_AUTOMATICO = "COMUNIDAD"
 
+# --- RECOMPENSAS POR NIVEL (canal privado que se desbloquea) ---
+# (nivel requerido, nombre exacto del rol, color, nombre exacto del canal)
+CANAL_NIVEL_10 = "🔓・nivel-10"
+NIVEL_RECOMPENSAS = [
+    (10, "🔓 Nivel 10", 0x1ABC9C, CANAL_NIVEL_10),
+]
+
 # --- ROLES QUE SE PUEDEN AUTOASIGNAR CON BOTONES ---
 # (etiqueta del boton, nombre exacto del rol, emoji)
 ROLES_PLATAFORMA = [
@@ -84,6 +91,8 @@ ESTRUCTURA = [
         ("🎧 Sala de espera", "voice"), ("🎮 Juegos", "voice")]},
     {"categoria": "🛡️ STAFF", "canales": [
         (CANAL_LOGS, "text")]},
+    {"categoria": "🔒 EXCLUSIVO", "canales": [
+        (nombre_canal, "text") for _n, _r, _c, nombre_canal in NIVEL_RECOMPENSAS]},
 ]
 
 # --- ROLES (nombre, color, hoist, mentionable) ---
@@ -107,6 +116,7 @@ ROLES = [
     ("Asia", 0x3498DB, False, True),
     ("Oceania", 0x3498DB, False, True),
     ("Africa", 0x3498DB, False, True),
+    *[(nombre_rol, color, False, False) for _n, nombre_rol, color, _c in NIVEL_RECOMPENSAS],
 ]
 
 # --- TEXTO DE LAS REGLAS ---
@@ -339,6 +349,33 @@ async def registrar_log(guild, texto):
             pass
 
 
+async def otorgar_recompensas(guild, member, nivel_previo, nivel_nuevo, canal_aviso=None):
+    """Da los roles y avisa por cada nivel de NIVEL_RECOMPENSAS cruzado
+    entre nivel_previo (exclusivo) y nivel_nuevo (inclusive)."""
+    for nivel_req, nombre_rol, _color, nombre_canal in NIVEL_RECOMPENSAS:
+        if not (nivel_previo < nivel_req <= nivel_nuevo):
+            continue
+
+        rol = discord.utils.get(guild.roles, name=nombre_rol)
+        if rol is not None and rol not in member.roles:
+            try:
+                await member.add_roles(rol)
+            except discord.Forbidden:
+                pass
+
+        canal_recompensa = buscar_canal(guild, nombre_canal)
+        canal_destino = canal_aviso or canal_recompensa
+        if canal_destino is not None:
+            mencion_canal = canal_recompensa.mention if canal_recompensa else nombre_canal
+            try:
+                await canal_destino.send(
+                    f"🔓 ¡{member.mention} desbloqueó {mencion_canal} "
+                    f"al llegar al nivel {nivel_req}!"
+                )
+            except discord.Forbidden:
+                pass
+
+
 # =====================================================================
 #  PANEL DE ROLES CON BOTONES
 # =====================================================================
@@ -472,6 +509,9 @@ async def on_message(message: discord.Message):
                 )
             except discord.Forbidden:
                 pass
+            await otorgar_recompensas(
+                message.guild, message.author, nivel_previo, nivel_nuevo, canal_nivel
+            )
 
     # IMPORTANTE: dejar que los comandos sigan funcionando
     await bot.process_commands(message)
@@ -545,6 +585,7 @@ async def setup(ctx):
     # Configurar el canal de perfiles de Steam como "solo-bot"
     await configurar_canal_steam(ctx)
     await configurar_canal_modloader(ctx)
+    await configurar_canales_recompensa(ctx)
 
 
 async def configurar_canal_steam(ctx):
@@ -616,6 +657,27 @@ async def configurar_canal_modloader(ctx):
             pass
 
 
+async def configurar_canales_recompensa(ctx):
+    """Oculta los canales de NIVEL_RECOMPENSAS para @everyone y los deja
+    visibles solo para quien tenga el rol de recompensa correspondiente."""
+    guild = ctx.guild
+    for _nivel, nombre_rol, _color, nombre_canal in NIVEL_RECOMPENSAS:
+        canal = buscar_canal(guild, nombre_canal)
+        if canal is None:
+            continue
+        rol = discord.utils.get(guild.roles, name=nombre_rol)
+        try:
+            await canal.set_permissions(guild.default_role, view_channel=False)
+            if rol is not None:
+                await canal.set_permissions(rol, view_channel=True)
+            await canal.set_permissions(guild.me, view_channel=True)
+        except discord.Forbidden:
+            await ctx.send(
+                f"⚠️ No pude ajustar permisos de {canal.mention}. "
+                "Revisa que mi rol esté arriba y tenga Gestionar canales."
+            )
+
+
 @setup.error
 async def setup_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
@@ -640,6 +702,24 @@ async def setupsteam(ctx):
 
 @setupsteam.error
 async def setupsteam_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: SETUPRECOMPENSAS (reconfigura los canales de nivel)
+# =====================================================================
+@bot.command(name="setuprecompensas")
+@commands.has_permissions(administrator=True)
+async def setuprecompensas(ctx):
+    await configurar_canales_recompensa(ctx)
+    await ctx.send("✅ Canales de recompensa por nivel configurados.")
+
+
+@setuprecompensas.error
+async def setuprecompensas_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ Necesitas ser Administrador.")
     else:
@@ -813,6 +893,7 @@ async def darnivel(ctx, nivel: int, miembro: discord.Member = None):
     _guardar_json(ARCHIVO_XP, xp_data)
 
     nivel_nuevo = nivel_desde_xp(xp_total)
+    await otorgar_recompensas(ctx.guild, miembro, nivel_previo, nivel_nuevo, ctx.channel)
     await ctx.send(
         f"✅ {miembro.mention} pasó del nivel **{nivel_previo}** al nivel "
         f"**{nivel_nuevo}** ({xp_total} XP total)."
@@ -1527,7 +1608,8 @@ async def ayuda(ctx):
                 "`!panelroles` — publica el panel de roles con botones\n"
                 "`!presentaciones` — publica la plantilla de presentación\n"
                 "`!anuncio <texto>` — publica un anuncio\n"
-                "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)"
+                "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)\n"
+                "`!setuprecompensas` — reconfigura los canales de nivel"
             ),
             inline=False,
         )
