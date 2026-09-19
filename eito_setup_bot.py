@@ -1,6 +1,5 @@
 """EITO SERVER SETUP BOT - crea categorias, canales, roles y da funciones al server."""
 
-import json
 import os
 import re
 import time
@@ -9,6 +8,17 @@ from datetime import timedelta
 import discord
 from aiohttp import web
 from discord.ext import commands
+
+from database import (
+    add_user_xp,
+    add_warn,
+    crear_tablas,
+    get_all_xp,
+    get_mensaje_cochipuerco,
+    get_user_xp,
+    get_warns,
+    set_mensaje_cochipuerco,
+)
 
 # Cargar variables desde un archivo .env local (si existe).
 # En produccion (hosting) las variables se ponen en el panel, no hace falta .env.
@@ -46,6 +56,14 @@ ROL_MODLOADER = "🔔 Mod Loader"
 
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
 ROL_AUTOMATICO = "COMUNIDAD"
+
+# --- ROL +18 Y ACCESO A LA CATEGORIA NSFW ---
+ROL_COCHIPUERCO = "Cochipuercoso"
+# Canales que viven dentro de la categoria NSFW (para ubicarla por contenido).
+CANALES_NSFW = ["los-nudes-de-eito-💪", "6-7", "juegos-h"]
+# Roles de staff que ya existen en el server y tienen acceso automatico a NSFW
+# (no se crean con !setup, solo se usan por nombre para permisos).
+ROLES_STAFF_NSFW = ["EITO LA GOAT", "DEVELOPER", "♡ Admins", "・∴Moderador∴・"]
 
 # --- RECOMPENSAS POR NIVEL (canal privado que se desbloquea) ---
 # (nivel requerido, nombre exacto del rol, color, nombre exacto del canal)
@@ -187,6 +205,8 @@ def construir_guia(guild):
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # Necesario para la bienvenida automatica (on_member_join)
+# intents.reactions ya viene activado por defecto en Intents.default() (no es
+# privilegiado) y alcanza para on_raw_reaction_add/remove del rol +18.
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
@@ -281,11 +301,8 @@ async def setup_hook():
 
 
 # =====================================================================
-#  PERSISTENCIA DE DATOS (XP y avisos en archivos JSON)
+#  PERSISTENCIA DE DATOS (XP y avisos en PostgreSQL, ver database.py)
 # =====================================================================
-ARCHIVO_XP = "niveles.json"
-ARCHIVO_WARNS = "avisos.json"
-
 # Configuracion de XP
 XP_POR_MENSAJE = 15        # XP que se gana por mensaje
 COOLDOWN_XP = 60           # segundos entre ganancias de XP (anti-spam)
@@ -295,29 +312,8 @@ COOLDOWN_JUGAR = 600       # 10 minutos por persona
 # Control en memoria del ultimo !jugar: {(guild_id, user_id): timestamp}
 ultimo_jugar = {}
 
-# Cache en memoria: {"guild_id": {"user_id": xp}}
-xp_data = {}
-warns_data = {}
 # Control de cooldown de XP en memoria: {(guild_id, user_id): timestamp}
 ultimo_xp = {}
-
-
-def _cargar_json(ruta):
-    if os.path.exists(ruta):
-        try:
-            with open(ruta, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
-
-
-def _guardar_json(ruta, data):
-    try:
-        with open(ruta, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except OSError as e:
-        print(f"⚠️ No se pudo guardar {ruta}: {e}")
 
 
 def xp_necesaria(nivel):
@@ -465,10 +461,8 @@ class PanelRoles(discord.ui.View):
 # =====================================================================
 @bot.event
 async def on_ready():
-    global xp_data, warns_data
-    # Cargar datos persistentes
-    xp_data = _cargar_json(ARCHIVO_XP)
-    warns_data = _cargar_json(ARCHIVO_WARNS)
+    # Crear las tablas de la base de datos si todavia no existen
+    await crear_tablas()
     # Registrar la vista persistente para que los botones funcionen tras reiniciar
     bot.add_view(PanelRoles())
     print(f"✅ Conectado como {bot.user}")
@@ -494,11 +488,9 @@ async def on_message(message: discord.Message):
     # Ganar XP con cooldown
     if ahora - ultimo_xp.get(clave, 0) >= COOLDOWN_XP:
         ultimo_xp[clave] = ahora
-        xp_data.setdefault(gid, {})
-        nivel_previo = nivel_desde_xp(xp_data[gid].get(uid, 0))
-        xp_data[gid][uid] = xp_data[gid].get(uid, 0) + XP_POR_MENSAJE
-        nivel_nuevo = nivel_desde_xp(xp_data[gid][uid])
-        _guardar_json(ARCHIVO_XP, xp_data)
+        nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
+        xp_total = await add_user_xp(gid, uid, XP_POR_MENSAJE)
+        nivel_nuevo = nivel_desde_xp(xp_total)
 
         # Aviso de subida de nivel (en el canal de niveles si existe)
         if nivel_nuevo > nivel_previo:
@@ -515,6 +507,64 @@ async def on_message(message: discord.Message):
 
     # IMPORTANTE: dejar que los comandos sigan funcionando
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """Da el rol Cochipuercoso al reaccionar con 🔞 en el panel +18."""
+    if payload.guild_id is None or str(payload.emoji) != "🔞":
+        return
+    if payload.member is None or payload.member.bot:
+        return
+
+    mensaje_id = await get_mensaje_cochipuerco(str(payload.guild_id))
+    if mensaje_id is None or str(payload.message_id) != mensaje_id:
+        return
+
+    guild = payload.member.guild
+    rol = discord.utils.get(guild.roles, name=ROL_COCHIPUERCO)
+    if rol is None:
+        await registrar_log(guild, f"⚠️ No encuentro el rol **{ROL_COCHIPUERCO}** para asignarlo.")
+        return
+
+    try:
+        await payload.member.add_roles(rol)
+    except discord.Forbidden:
+        await registrar_log(
+            guild,
+            f"⚠️ Sin permisos para dar el rol **{ROL_COCHIPUERCO}** a {payload.member}.",
+        )
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    """Quita el rol Cochipuercoso al retirar la reacción 🔞 del panel +18."""
+    if payload.guild_id is None or str(payload.emoji) != "🔞":
+        return
+
+    mensaje_id = await get_mensaje_cochipuerco(str(payload.guild_id))
+    if mensaje_id is None or str(payload.message_id) != mensaje_id:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    if guild is None:
+        return
+    miembro = guild.get_member(payload.user_id)
+    if miembro is None or miembro.bot:
+        return
+
+    rol = discord.utils.get(guild.roles, name=ROL_COCHIPUERCO)
+    if rol is None:
+        await registrar_log(guild, f"⚠️ No encuentro el rol **{ROL_COCHIPUERCO}** para quitarlo.")
+        return
+
+    try:
+        await miembro.remove_roles(rol)
+    except discord.Forbidden:
+        await registrar_log(
+            guild,
+            f"⚠️ Sin permisos para quitar el rol **{ROL_COCHIPUERCO}** a {miembro}.",
+        )
 
 
 @bot.event
@@ -678,6 +728,47 @@ async def configurar_canales_recompensa(ctx):
             )
 
 
+async def configurar_nsfw(ctx):
+    """Oculta la categoría NSFW para @everyone y la deja visible solo para
+    quien tenga el rol Cochipuercoso o sea staff. Los permisos se aplican
+    a nivel de categoría para que los hereden todos sus canales."""
+    guild = ctx.guild
+
+    # Ubicar la categoría buscando cuál contiene los canales NSFW conocidos
+    categoria = None
+    for cat in guild.categories:
+        nombres_canales = [c.name for c in cat.channels]
+        if any(nombre in nombres_canales for nombre in CANALES_NSFW):
+            categoria = cat
+            break
+
+    if categoria is None:
+        await ctx.send(
+            "⚠️ No encuentro la categoría NSFW (busco los canales "
+            f"{', '.join(CANALES_NSFW)})."
+        )
+        return
+
+    rol_cochipuerco = discord.utils.get(guild.roles, name=ROL_COCHIPUERCO)
+    if rol_cochipuerco is None:
+        await ctx.send(f"⚠️ No encuentro el rol **{ROL_COCHIPUERCO}** en el servidor.")
+        return
+
+    try:
+        await categoria.set_permissions(guild.default_role, view_channel=False)
+        await categoria.set_permissions(rol_cochipuerco, view_channel=True)
+        for nombre_rol in ROLES_STAFF_NSFW:
+            rol = discord.utils.get(guild.roles, name=nombre_rol)
+            if rol is not None:
+                await categoria.set_permissions(rol, view_channel=True)
+        await categoria.set_permissions(guild.me, view_channel=True)
+    except discord.Forbidden:
+        await ctx.send(
+            f"⚠️ No pude ajustar permisos de la categoría **{categoria.name}**. "
+            "Revisa que mi rol esté arriba y tenga Gestionar canales."
+        )
+
+
 @setup.error
 async def setup_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
@@ -720,6 +811,36 @@ async def setuprecompensas(ctx):
 
 @setuprecompensas.error
 async def setuprecompensas_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: PANELCOCHIPUERCO (rol +18 con acceso a la categoría NSFW)
+# =====================================================================
+@bot.command(name="panelcochipuerco")
+@commands.has_permissions(administrator=True)
+async def panelcochipuerco(ctx):
+    await configurar_nsfw(ctx)
+    embed = discord.Embed(
+        title="🔞 Contenido +18",
+        description=(
+            "Reacciona con 🔞 para obtener el rol **Cochipuercoso** "
+            "y acceder a los canales de contenido para mayores de edad.\n\n"
+            "Discord verificará tu edad al entrar a esos canales."
+        ),
+        colour=discord.Colour(0xE74C3C),
+    )
+    mensaje = await ctx.send(embed=embed)
+    await mensaje.add_reaction("🔞")
+    await set_mensaje_cochipuerco(str(ctx.guild.id), str(mensaje.id))
+    await ctx.send(f"✅ Panel publicado y permisos NSFW configurados. Mensaje ID: `{mensaje.id}`")
+
+
+@panelcochipuerco.error
+async def panelcochipuerco_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ Necesitas ser Administrador.")
     else:
@@ -885,12 +1006,11 @@ async def darnivel(ctx, nivel: int, miembro: discord.Member = None):
 
     gid = str(ctx.guild.id)
     uid = str(miembro.id)
-    xp_data.setdefault(gid, {})
-    nivel_previo = nivel_desde_xp(xp_data[gid].get(uid, 0))
+    xp_actual = await get_user_xp(gid, uid)
+    nivel_previo = nivel_desde_xp(xp_actual)
 
     xp_total = sum(xp_necesaria(n) for n in range(nivel))
-    xp_data[gid][uid] = xp_total
-    _guardar_json(ARCHIVO_XP, xp_data)
+    await add_user_xp(gid, uid, xp_total - xp_actual)
 
     nivel_nuevo = nivel_desde_xp(xp_total)
     await otorgar_recompensas(ctx.guild, miembro, nivel_previo, nivel_nuevo, ctx.channel)
@@ -1107,14 +1227,7 @@ async def warn(ctx, miembro: discord.Member, *, razon: str = "Sin razón indicad
         return
     gid = str(ctx.guild.id)
     uid = str(miembro.id)
-    warns_data.setdefault(gid, {})
-    warns_data[gid].setdefault(uid, [])
-    warns_data[gid][uid].append({
-        "razon": razon,
-        "mod": ctx.author.display_name,
-    })
-    _guardar_json(ARCHIVO_WARNS, warns_data)
-    total = len(warns_data[gid][uid])
+    total = await add_warn(gid, uid, razon, ctx.author.display_name)
     await ctx.send(
         f"⚠️ **{miembro.display_name}** avisado. Razón: {razon}\n"
         f"Total de avisos: **{total}**"
@@ -1146,7 +1259,7 @@ async def warns(ctx, miembro: discord.Member = None):
     miembro = miembro or ctx.author
     gid = str(ctx.guild.id)
     uid = str(miembro.id)
-    lista = warns_data.get(gid, {}).get(uid, [])
+    lista = await get_warns(gid, uid)
     if not lista:
         await ctx.send(f"✅ **{miembro.display_name}** no tiene avisos.")
         return
@@ -1158,7 +1271,7 @@ async def warns(ctx, miembro: discord.Member = None):
     for i, w in enumerate(lista, 1):
         embed.add_field(
             name=f"Aviso #{i}",
-            value=f"Razón: {w['razon']}\nPor: {w['mod']}",
+            value=f"Razón: {w['reason']}\nPor: {w['moderator']}",
             inline=False,
         )
     await ctx.send(embed=embed)
@@ -1417,7 +1530,7 @@ async def nivel(ctx, miembro: discord.Member = None):
     miembro = miembro or ctx.author
     gid = str(ctx.guild.id)
     uid = str(miembro.id)
-    xp_total = xp_data.get(gid, {}).get(uid, 0)
+    xp_total = await get_user_xp(gid, uid)
     nivel_actual = nivel_desde_xp(xp_total)
 
     # XP dentro del nivel actual
@@ -1455,7 +1568,7 @@ async def nivel_error(ctx, error):
 @bot.command(name="top")
 async def top(ctx):
     gid = str(ctx.guild.id)
-    datos = xp_data.get(gid, {})
+    datos = await get_all_xp(gid)
     if not datos:
         await ctx.send("Aún no hay XP registrada. ¡Escribe para ganar! 💬")
         return
@@ -1609,7 +1722,8 @@ async def ayuda(ctx):
                 "`!presentaciones` — publica la plantilla de presentación\n"
                 "`!anuncio <texto>` — publica un anuncio\n"
                 "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)\n"
-                "`!setuprecompensas` — reconfigura los canales de nivel"
+                "`!setuprecompensas` — reconfigura los canales de nivel\n"
+                "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW"
             ),
             inline=False,
         )
