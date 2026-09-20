@@ -59,7 +59,9 @@ ROL_AUTOMATICO = "COMUNIDAD"
 
 # --- ROL +18 Y ACCESO A LA CATEGORIA NSFW ---
 ROL_COCHIPUERCO = "Cochipuercoso"
-# Canales que viven dentro de la categoria NSFW (para ubicarla por contenido).
+# ID de la categoria NSFW (buscar por nombre fallaba por el encoding del emoji).
+ID_CATEGORIA_NSFW = 1550995935071436800
+# Canales que viven dentro de la categoria NSFW (solo para el mensaje de error).
 CANALES_NSFW = ["los-nudes-de-eito-💪", "6-7", "juegos-h"]
 # Roles de staff que ya existen en el server y tienen acceso automatico a NSFW
 # (no se crean con !setup, solo se usan por nombre para permisos).
@@ -728,31 +730,28 @@ async def configurar_canales_recompensa(ctx):
             )
 
 
-async def configurar_nsfw(ctx):
+async def configurar_nsfw(ctx) -> bool:
     """Oculta la categoría NSFW para @everyone y la deja visible solo para
     quien tenga el rol Cochipuercoso o sea staff. Los permisos se aplican
-    a nivel de categoría para que los hereden todos sus canales."""
+    a nivel de categoría para que los hereden todos sus canales.
+
+    Devuelve True si se pudo configurar todo, False si falló algo."""
     guild = ctx.guild
 
-    # Ubicar la categoría buscando cuál contiene los canales NSFW conocidos
-    categoria = None
-    for cat in guild.categories:
-        nombres_canales = [c.name for c in cat.channels]
-        if any(nombre in nombres_canales for nombre in CANALES_NSFW):
-            categoria = cat
-            break
-
-    if categoria is None:
+    # Ubicar la categoría directamente por ID (buscar por nombre de canal
+    # fallaba por el encoding del emoji 💪).
+    categoria = ctx.guild.get_channel(ID_CATEGORIA_NSFW)
+    if categoria is None or not isinstance(categoria, discord.CategoryChannel):
         await ctx.send(
             "⚠️ No encuentro la categoría NSFW (busco los canales "
             f"{', '.join(CANALES_NSFW)})."
         )
-        return
+        return False
 
     rol_cochipuerco = discord.utils.get(guild.roles, name=ROL_COCHIPUERCO)
     if rol_cochipuerco is None:
         await ctx.send(f"⚠️ No encuentro el rol **{ROL_COCHIPUERCO}** en el servidor.")
-        return
+        return False
 
     try:
         await categoria.set_permissions(guild.default_role, view_channel=False)
@@ -767,6 +766,9 @@ async def configurar_nsfw(ctx):
             f"⚠️ No pude ajustar permisos de la categoría **{categoria.name}**. "
             "Revisa que mi rol esté arriba y tenga Gestionar canales."
         )
+        return False
+
+    return True
 
 
 @setup.error
@@ -823,7 +825,8 @@ async def setuprecompensas_error(ctx, error):
 @bot.command(name="panelcochipuerco")
 @commands.has_permissions(administrator=True)
 async def panelcochipuerco(ctx):
-    await configurar_nsfw(ctx)
+    if not await configurar_nsfw(ctx):
+        return
     embed = discord.Embed(
         title="🔞 Contenido +18",
         description=(
