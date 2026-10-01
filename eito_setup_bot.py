@@ -450,13 +450,24 @@ async def setup_hook():
         print("\u26a0\ufe0f  RELEASE_WEBHOOK_SECRET no definido. El endpoint /release-webhook rechazara todas las peticiones.")
     if not EITO_GUILD_ID:
         print("⚠️  EITO_GUILD_ID no definido. !darnivel funciona en cualquier servidor, incluido el de produccion.")
+    # Las tablas se crean ANTES de arrancar cualquier loop o registrar vistas: los
+    # loops consultan la BD apenas arrancan y, en el primer deploy con tablas
+    # nuevas, fallarian con "relation ... does not exist". Si falla, se avisa y el
+    # bot arranca igual (on_ready y los before_loop lo reintentan; crear_tablas
+    # solo hace el trabajo una vez por proceso).
+    try:
+        await crear_tablas()
+    except Exception:
+        print("⚠️ crear_tablas() falló en setup_hook; el bot arranca igual:")
+        traceback.print_exc()
     bot.loop.create_task(start_web_server())
+    # Vista persistente de las convocatorias de !jugar (botones con custom_id fijo)
+    bot.add_view(LfgView())
+    # Loops: SIEMPRE despues de crear_tablas() y add_view (cualquier loop nuevo va aqui)
     if not premiar_activo_mes.is_running():
         premiar_activo_mes.start()
     if not actualizar_rangos.is_running():
         actualizar_rangos.start()
-    # Vista persistente de las convocatorias de !jugar (botones con custom_id fijo)
-    bot.add_view(LfgView())
     if not cerrar_convocatorias_vencidas.is_running():
         cerrar_convocatorias_vencidas.start()
 
