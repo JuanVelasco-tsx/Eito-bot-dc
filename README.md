@@ -50,6 +50,12 @@ los botones y, si se apuntó al menos una persona más, se cuenta **una sola vez
 +1 «partida» al autor y a cada apuntado, y +1 «convocatoria exitosa» al autor.
 Sin apuntados no se cuenta nada. Los botones sobreviven a los reinicios.
 
+Para evitar el farmeo, una convocatoria solo cuenta si estuvo abierta **al menos
+15 minutos** (si se cierra antes, se cierra igual, pero el embed dice «no cuenta:
+cerrada antes de 15 min» y no suma nada), y cada persona suma como máximo **3 partidas
+por día** (y el autor 3 convocatorias exitosas por día; el día se mide en UTC-5). Si
+alguien ya llegó al límite, no suma más, pero los demás apuntados sí.
+
 Al llegar a **10 partidas** se gana **🧟 Superviviente** y a **10 convocatorias exitosas**
 **🎯 Convocador**: el bot da el rol, lo anuncia en el canal de logros y nunca lo quita.
 Cada 6 horas revisa estos umbrales como respaldo (sin anunciar). Los IDs de estos roles

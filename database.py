@@ -528,6 +528,41 @@ async def incrementar_contador(guild_id, user_id, tipo, n=1) -> int:
         return valor
 
 
+async def incrementar_contador_con_tope(guild_id, user_id, tipo, tope, n=1):
+    """Suma `n` al contador `tipo` SOLO si su valor actual es menor que `tope`
+    (comprobacion y suma en una sola sentencia, atomica).
+
+    Devuelve el valor nuevo, o None si ya estaba en el tope (no suma nada)."""
+    async with SessionLocal() as session:
+        stmt = pg_insert(Contador).values(
+            guild_id=str(guild_id), user_id=str(user_id), tipo=tipo, valor=n
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["guild_id", "user_id", "tipo"],
+            set_={"valor": Contador.__table__.c.valor + n},
+            where=Contador.__table__.c.valor < tope,
+        ).returning(Contador.valor)
+        resultado = await session.execute(stmt)
+        fila = resultado.first()
+        await session.commit()
+        return fila[0] if fila else None
+
+
+async def purgar_contadores_diarios(prefijo, fecha_limite) -> int:
+    """Borra los contadores diarios `<prefijo><YYYY-MM-DD>` anteriores a `fecha_limite`.
+
+    Devuelve cuantas filas borro. (Las fechas ISO se ordenan como texto.)"""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            delete(Contador).where(
+                Contador.tipo.startswith(prefijo, autoescape=True),
+                Contador.tipo < f"{prefijo}{fecha_limite}",
+            )
+        )
+        await session.commit()
+        return resultado.rowcount or 0
+
+
 async def obtener_contadores(guild_id, user_id) -> dict:
     """Devuelve {tipo: valor} con todos los contadores de un usuario."""
     async with SessionLocal() as session:
@@ -616,21 +651,23 @@ async def listar_participantes(post_id) -> list:
         return [user_id for (user_id,) in resultado.all()]
 
 
-async def cerrar_lfg_post(post_id) -> bool:
+async def cerrar_lfg_post(post_id):
     """Cierra la convocatoria de forma atomica.
 
-    Devuelve True solo si ESTA llamada la cerro (estaba abierta); asi el conteo
-    de partidas se hace una unica vez aunque haya cierres concurrentes."""
+    Si ESTA llamada la cerro (estaba abierta) devuelve cuanto duro abierta
+    (timedelta, medido en la propia BD: now() - creado, sin depender del reloj
+    del bot); si ya estaba cerrada devuelve None. Asi el conteo de partidas se
+    hace una unica vez aunque haya cierres concurrentes."""
     async with SessionLocal() as session:
         resultado = await session.execute(
             update(LfgPost)
             .where(LfgPost.id == post_id, LfgPost.estado == "abierta")
             .values(estado="cerrada")
-            .returning(LfgPost.id)
+            .returning((func.now() - LfgPost.creado).label("duracion"))
         )
-        cerrada = resultado.first() is not None
+        fila = resultado.first()
         await session.commit()
-        return cerrada
+        return fila[0] if fila else None
 
 
 async def lfg_posts_vencidos(corte) -> list:

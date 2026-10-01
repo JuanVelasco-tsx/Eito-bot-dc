@@ -33,10 +33,12 @@ from database import (
     hay_fundadores,
     importar_xp_mensual,
     incrementar_contador,
+    incrementar_contador_con_tope,
     lfg_posts_vencidos,
     listar_participantes,
     mes_ya_premiado,
     obtener_contadores,
+    purgar_contadores_diarios,
     set_mensaje_cochipuerco,
     set_mensaje_fijo,
     set_user_xp,
@@ -145,12 +147,12 @@ DIAS_LEYENDA = 180
 
 # --- RANGOS POR CONTADOR (permanentes: el bot nunca los quita) ---
 # Los nombres solo los usa !setup; el bot busca los roles por ID.
-# TODO: pon aqui los IDs reales. Con 0 el bot nunca asigna el rol, pero los
-# contadores se registran igual (y el rol se da solo cuando haya un ID valido).
+# Si un ID es 0 o no existe en el server, el bot no asigna ese rol (los
+# contadores se registran igual y el rol se da cuando haya un ID valido).
 ROL_SUPERVIVIENTE = "🧟 Superviviente"
-ROL_SUPERVIVIENTE_ID = 0
+ROL_SUPERVIVIENTE_ID = 1555354849162563676
 ROL_CONVOCADOR = "🎯 Convocador"
-ROL_CONVOCADOR_ID = 0
+ROL_CONVOCADOR_ID = 1555354957253841008
 # (tipo de contador, umbral, ID del rol)
 RANGOS_POR_CONTADOR = [
     ("partidas", 10, ROL_SUPERVIVIENTE_ID),             # 🧟 Superviviente
@@ -844,6 +846,15 @@ async def actualizar_rangos():
         except Exception:
             print(f"⚠️ Error revisando los rangos por contador en {guild.name}:")
             traceback.print_exc()
+    # Limpieza (una vez por pasada): los contadores diarios de hace mas de
+    # DIAS_CONTADORES_DIARIOS dias ya no sirven para el tope.
+    try:
+        limite = dia_contable(datetime.now(timezone.utc) - timedelta(days=DIAS_CONTADORES_DIARIOS))
+        for prefijo in ("partidas_dia:", "convocatorias_dia:"):
+            await purgar_contadores_diarios(prefijo, limite)
+    except Exception:
+        print("⚠️ Error limpiando los contadores diarios:")
+        traceback.print_exc()
 
 
 @actualizar_rangos.before_loop
@@ -2525,11 +2536,25 @@ async def steam_error(ctx, error):
 # =====================================================================
 LFG_DURACION = timedelta(hours=2)   # una convocatoria dura 2 horas
 MAX_APUNTADOS_EMBED = 15            # nombres que se muestran en el embed
+# Anti-farmeo: al cerrarse solo cuenta si estuvo abierta al menos LFG_MIN_PARA_CONTAR
+# y cada persona suma como maximo TOPE_DIARIO_LFG partidas (y el autor
+# convocatorias exitosas) por dia. El dia se mide en UTC-5 fijo.
+LFG_MIN_PARA_CONTAR = timedelta(minutes=15)
+TOPE_DIARIO_LFG = 3
+HORAS_UTC_DIA = -5
+DIAS_CONTADORES_DIARIOS = 7         # cuantos dias se conservan los contadores diarios
 
 
-def actualizar_embed_lfg(embed, guild, participantes, cerrada=False):
+def dia_contable(ahora=None):
+    """Dia (YYYY-MM-DD) en UTC-5 fijo, para los topes diarios."""
+    ahora = ahora or datetime.now(timezone.utc)
+    return (ahora + timedelta(hours=HORAS_UTC_DIA)).strftime("%Y-%m-%d")
+
+
+def actualizar_embed_lfg(embed, guild, participantes, cerrada=False, cuenta=True):
     """Actualiza el field "Apuntados" del embed (y, si `cerrada`, el titulo y el
-    color). `participantes` son IDs; se muestran hasta MAX_APUNTADOS_EMBED nombres."""
+    color). `participantes` son IDs; se muestran hasta MAX_APUNTADOS_EMBED nombres.
+    Si se cerro demasiado pronto para contar (`cuenta` False) lo indica en el titulo."""
     nombres = []
     for user_id in participantes[:MAX_APUNTADOS_EMBED]:
         miembro = guild.get_member(int(user_id))
@@ -2549,6 +2574,9 @@ def actualizar_embed_lfg(embed, guild, participantes, cerrada=False):
         embed.add_field(name=nombre, value=valor, inline=False)
     if cerrada:
         embed.title = "🔒 Convocatoria cerrada"
+        if not cuenta:
+            minutos = int(LFG_MIN_PARA_CONTAR.total_seconds() // 60)
+            embed.title += f" (no cuenta: cerrada antes de {minutos} min)"
         embed.colour = discord.Colour(0x95A5A6)
     return embed
 
@@ -2562,22 +2590,38 @@ def lfg_vencida(post, ahora=None):
 async def contar_convocatoria(guild, post, participantes):
     """Cuenta una convocatoria cerrada: si hubo al menos un apuntado distinto del
     autor, +1 "convocatorias_exitosas" al autor y +1 "partidas" al autor y a cada
-    apuntado. Sin apuntados no cuenta nada."""
+    apuntado. Sin apuntados no cuenta nada.
+
+    Tope diario (anti-farmeo): cada persona suma como maximo TOPE_DIARIO_LFG
+    partidas por dia, y el autor TOPE_DIARIO_LFG convocatorias exitosas. Cada
+    tope es individual: que uno lo alcance no impide que los demas sumen. Se
+    lleva con contadores diarios ("partidas_dia:2026-10-01") cuyo incremento
+    comprueba el tope de forma atomica."""
     autor_id = int(post["autor_id"])
     otros = [int(u) for u in participantes if int(u) != autor_id]
     if not otros:
         return
-    for tipo, ids in (("convocatorias_exitosas", [autor_id]), ("partidas", [autor_id, *otros])):
+    dia = dia_contable()
+    for tipo, tipo_dia, ids in (
+        ("convocatorias_exitosas", "convocatorias_dia", [autor_id]),
+        ("partidas", "partidas_dia", [autor_id, *otros]),
+    ):
         for user_id in ids:
             try:
+                bajo_el_tope = await incrementar_contador_con_tope(
+                    guild.id, user_id, f"{tipo_dia}:{dia}", TOPE_DIARIO_LFG
+                )
+                if bajo_el_tope is None:
+                    continue  # ya llego al tope de hoy: no suma
                 await contar(guild, user_id, tipo)
             except Exception as e:
                 print(f"⚠️ [{guild.name}] No pude contar {tipo} de {user_id}: {e}")
 
 
-async def editar_mensaje_lfg_cerrado(guild, post, participantes):
+async def editar_mensaje_lfg_cerrado(guild, post, participantes, cuenta=True):
     """Edita el mensaje de la convocatoria: "Convocatoria cerrada", lista final y
-    botones deshabilitados. Si el mensaje ya no existe, no hace nada."""
+    botones deshabilitados (con la nota "no cuenta" si `cuenta` es False). Si el
+    mensaje ya no existe, no hace nada."""
     canal = guild.get_channel(int(post["canal_id"]))
     if canal is None:
         return
@@ -2585,7 +2629,7 @@ async def editar_mensaje_lfg_cerrado(guild, post, participantes):
         mensaje = await canal.fetch_message(int(post["mensaje_id"]))
         if not mensaje.embeds:
             return
-        embed = actualizar_embed_lfg(mensaje.embeds[0], guild, participantes, cerrada=True)
+        embed = actualizar_embed_lfg(mensaje.embeds[0], guild, participantes, cerrada=True, cuenta=cuenta)
         await mensaje.edit(embed=embed, view=LfgView(cerrada=True))
     except discord.NotFound:
         pass  # el mensaje fue borrado: igual queda cerrada y contada en la BD
@@ -2597,13 +2641,20 @@ async def cerrar_convocatoria(guild, post):
     """Cierra la convocatoria (por expiracion, boton o clic tardio).
 
     El cierre es atomico: solo la llamada que la pasa de "abierta" a "cerrada"
-    cuenta las partidas. Devuelve True si esta llamada fue la que la cerro."""
-    cerrada_ahora = await cerrar_lfg_post(post["id"])
+    edita el mensaje y cuenta las partidas. Solo cuenta si estuvo abierta al
+    menos LFG_MIN_PARA_CONTAR (si no, se cierra igual pero no suma nada).
+
+    Devuelve None si ya estaba cerrada, o True/False segun si esta convocatoria
+    cuenta o no."""
+    duracion = await cerrar_lfg_post(post["id"])
+    if duracion is None:
+        return None
     participantes = await listar_participantes(post["id"])
-    if cerrada_ahora:
+    cuenta = duracion >= LFG_MIN_PARA_CONTAR
+    if cuenta:
         await contar_convocatoria(guild, post, participantes)
-    await editar_mensaje_lfg_cerrado(guild, post, participantes)
-    return cerrada_ahora
+    await editar_mensaje_lfg_cerrado(guild, post, participantes, cuenta)
+    return cuenta
 
 
 async def lfg_apuntar(interaction):
@@ -2656,11 +2707,15 @@ async def lfg_cerrar_click(interaction):
     if post["estado"] != "abierta":
         await interaction.followup.send("🔒 Esta convocatoria ya estaba cerrada.", ephemeral=True)
         return
-    cerrada = await cerrar_convocatoria(interaction.guild, post)
-    await interaction.followup.send(
-        "🔒 Convocatoria cerrada." if cerrada else "🔒 Esta convocatoria ya estaba cerrada.",
-        ephemeral=True,
-    )
+    cuenta = await cerrar_convocatoria(interaction.guild, post)
+    if cuenta is None:
+        texto = "🔒 Esta convocatoria ya estaba cerrada."
+    elif cuenta:
+        texto = "🔒 Convocatoria cerrada."
+    else:
+        minutos = int(LFG_MIN_PARA_CONTAR.total_seconds() // 60)
+        texto = f"🔒 Convocatoria cerrada (no cuenta: cerrada antes de {minutos} min)."
+    await interaction.followup.send(texto, ephemeral=True)
 
 
 class LfgView(discord.ui.View):
