@@ -640,3 +640,14 @@ async def lfg_posts_vencidos(corte) -> list:
             select(LfgPost).where(LfgPost.estado == "abierta", LfgPost.creado < corte)
         )
         return [_lfg_dict(p) for p in resultado.scalars().all()]
+
+
+async def contar_activo_del_mes(guild_id, user_id) -> int:
+    """Cuantas veces un usuario aparecio entre los ganadores del Activo del mes."""
+    async with SessionLocal() as session:
+        total = await session.scalar(
+            select(func.count())
+            .select_from(GanadorMes)
+            .where(GanadorMes.guild_id == str(guild_id), GanadorMes.user_id == str(user_id))
+        )
+        return total or 0

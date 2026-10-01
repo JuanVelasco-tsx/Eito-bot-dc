@@ -18,6 +18,7 @@ from database import (
     add_xp_mensual,
     alternar_participante,
     cerrar_lfg_post,
+    contar_activo_del_mes,
     crear_lfg_post,
     crear_tablas,
     get_all_xp,
@@ -35,6 +36,7 @@ from database import (
     lfg_posts_vencidos,
     listar_participantes,
     mes_ya_premiado,
+    obtener_contadores,
     set_mensaje_cochipuerco,
     set_mensaje_fijo,
     set_user_xp,
@@ -1024,10 +1026,9 @@ async def on_ready():
     # Registrar la vista persistente para que los botones funcionen tras reiniciar
     bot.add_view(PanelRoles())
     print(f"✅ Conectado como {bot.user}")
-    print("Admin: !setup !setupsteam !reglas !info !panelroles !presentaciones !anuncio")
-    print("Moderación: !borrar !kick !ban !mute !unmute !warn !warns")
-    print("Comunidad: !ping !miembros !avatar !serverinfo !ayuda !nivel !top")
-    print("Utilidad: !encuesta !sugerencia !steam !jugar")
+    # Lista real de comandos (la misma que usa !ayuda)
+    for titulo, entradas in AYUDA_SECCIONES:
+        print(f"{titulo}: " + " ".join(f"!{nombre}" for nombre, _texto, _cond in entradas))
 
 
 @bot.event
@@ -2841,6 +2842,23 @@ async def nivel_error(ctx, error):
 # =====================================================================
 #  COMUNIDAD: ANTIGUEDAD (dias en el server, rango y distinciones)
 # =====================================================================
+def rango_antiguedad(ids_roles, dias):
+    """(rango actual, siguiente rango) segun los dias en el server. El rango
+    cuenta por dias o por tener ya el rol (p. ej. puesto a mano). `dias` puede
+    ser None si no se sabe cuando entro."""
+    es_leyenda = ROL_LEYENDA_ID in ids_roles or (dias is not None and dias >= DIAS_LEYENDA)
+    es_veterano = ROL_VETERANO_ID in ids_roles or (dias is not None and dias >= DIAS_VETERANO)
+    if es_leyenda:
+        return ROL_LEYENDA, "Rango máximo alcanzado 🎉"
+    if es_veterano:
+        return ROL_VETERANO, (
+            f"{ROL_LEYENDA} en **{max(DIAS_LEYENDA - dias, 0)}** días" if dias is not None else "—"
+        )
+    return "Ninguno todavía", (
+        f"{ROL_VETERANO} en **{max(DIAS_VETERANO - dias, 0)}** días" if dias is not None else "—"
+    )
+
+
 @bot.command(name="antiguedad")
 @commands.guild_only()
 async def antiguedad(ctx, miembro: discord.Member = None):
@@ -2849,24 +2867,7 @@ async def antiguedad(ctx, miembro: discord.Member = None):
     ids_roles = {rol.id for rol in miembro.roles}
     dias = (ahora - miembro.joined_at).days if miembro.joined_at else None
 
-    # Rango: por dias en el server, o por tener ya el rol (p. ej. puesto a mano)
-    es_leyenda = ROL_LEYENDA_ID in ids_roles or (dias is not None and dias >= DIAS_LEYENDA)
-    es_veterano = ROL_VETERANO_ID in ids_roles or (dias is not None and dias >= DIAS_VETERANO)
-    if es_leyenda:
-        rango = f"{ROL_LEYENDA}"
-        siguiente = "Rango máximo alcanzado 🎉"
-    elif es_veterano:
-        rango = f"{ROL_VETERANO}"
-        siguiente = (
-            f"{ROL_LEYENDA} en **{max(DIAS_LEYENDA - dias, 0)}** días"
-            if dias is not None else "—"
-        )
-    else:
-        rango = "Ninguno todavía"
-        siguiente = (
-            f"{ROL_VETERANO} en **{max(DIAS_VETERANO - dias, 0)}** días"
-            if dias is not None else "—"
-        )
+    rango, siguiente = rango_antiguedad(ids_roles, dias)
 
     embed = discord.Embed(
         title=f"🕰️ Antigüedad de {miembro.display_name}",
@@ -2901,6 +2902,88 @@ async def antiguedad(ctx, miembro: discord.Member = None):
 
 @antiguedad.error
 async def antiguedad_error(ctx, error):
+    if isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ No encuentro a ese miembro.")
+    elif isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMUNIDAD: PERFIL (nivel, antiguedad, distinciones y contadores)
+# =====================================================================
+async def _seguro(coro, defecto):
+    """Espera `coro`; si falla (p. ej. la BD), lo registra y devuelve `defecto`."""
+    try:
+        return await coro
+    except Exception as e:
+        print(f"⚠️ !perfil: no pude leer un dato: {e}")
+        return defecto
+
+
+def progreso_contador(tipo, valor):
+    """'7/10' hacia el rango del contador `tipo`, o '✅' si ya llego al umbral."""
+    umbral = next((u for t, u, _rol_id in RANGOS_POR_CONTADOR if t == tipo), 10)
+    return "✅" if valor >= umbral else f"{valor}/{umbral}"
+
+
+@bot.command(name="perfil")
+@commands.guild_only()
+async def perfil(ctx, miembro: discord.Member = None):
+    miembro = miembro or ctx.author
+    gid = ctx.guild.id
+    xp = await _seguro(get_user_xp(gid, miembro.id), 0)
+    puesto = await _seguro(get_fundador(gid, miembro.id), None)
+    veces_activo = await _seguro(contar_activo_del_mes(gid, miembro.id), 0)
+    contadores = await _seguro(obtener_contadores(gid, miembro.id), {})
+
+    ids_roles = {rol.id for rol in miembro.roles}
+    dias = (datetime.now(timezone.utc) - miembro.joined_at).days if miembro.joined_at else None
+    rango, _siguiente = rango_antiguedad(ids_roles, dias)
+
+    distinciones = []
+    if puesto is not None:
+        distinciones.append(f"🌱 Fundador #{puesto}")
+    if ROL_OG_ID in ids_roles:
+        distinciones.append("🥇 OG")
+    if veces_activo:
+        distinciones.append(f"🔥 Activo del mes ×{veces_activo}")
+
+    partidas = contadores.get("partidas", 0)
+    convocatorias = contadores.get("convocatorias_exitosas", 0)
+    embed = discord.Embed(
+        title=f"🪪 Perfil de {miembro.display_name}",
+        colour=discord.Colour(0x5865F2),
+    )
+    embed.set_thumbnail(url=miembro.display_avatar.url)
+    embed.add_field(name="📈 Nivel", value=f"Nivel **{nivel_desde_xp(xp)}** · **{xp}** XP", inline=True)
+    embed.add_field(
+        name="🕰️ En el server",
+        value=(f"**{dias}** días" if dias is not None else "Fecha desconocida") + f" · {rango}",
+        inline=True,
+    )
+    embed.add_field(
+        name="🏅 Distinciones",
+        value="\n".join(distinciones) if distinciones else "Ninguna todavía",
+        inline=False,
+    )
+    embed.add_field(
+        name="🎮 Partidas jugadas",
+        value=f"**{partidas}** · {ROL_SUPERVIVIENTE} {progreso_contador('partidas', partidas)}",
+        inline=True,
+    )
+    embed.add_field(
+        name="🎯 Convocatorias exitosas",
+        value=(f"**{convocatorias}** · {ROL_CONVOCADOR} "
+               f"{progreso_contador('convocatorias_exitosas', convocatorias)}"),
+        inline=True,
+    )
+    await ctx.send(embed=embed)
+
+
+@perfil.error
+async def perfil_error(ctx, error):
     if isinstance(error, commands.MemberNotFound):
         await ctx.send("❌ No encuentro a ese miembro.")
     elif isinstance(error, commands.NoPrivateMessage):
@@ -3014,13 +3097,14 @@ AYUDA_SECCIONES = [
         ("top", "`!top` — ranking de niveles del servidor", None),
         ("warns", "`!warns` — muestra tus avisos", None),
         ("antiguedad", "`!antiguedad [@usuario]` — días en el server, rango y distinciones", None),
+        ("perfil", "`!perfil [@usuario]` — nivel, antigüedad, distinciones y partidas", None),
         ("ayuda", "`!ayuda` — muestra esta lista", None),
     ]),
     ("📊 Utilidad", [
         ("encuesta", "`!encuesta <pregunta>` — crea una encuesta 👍👎", None),
         ("sugerencia", "`!sugerencia <texto>` — envía una sugerencia con votación", None),
         ("steam", "`!steam <enlace o SteamID>` — publica tu perfil de Steam", None),
-        ("jugar", "`!jugar [mensaje]` — avisa a los Leftsito para buscar partida", None),
+        ("jugar", "`!jugar [mensaje]` — busca gente para jugar; los demás se apuntan con un botón", None),
     ]),
     ("🛡️ Moderación", [
         ("borrar", "`!borrar <n>` — borra los últimos N mensajes (1–100)", None),

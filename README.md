@@ -10,7 +10,7 @@ estructura del servidor y añade funciones de comunidad, moderación y niveles.
 - **Panel de roles** con botones (plataforma, región y avisos) y rol +18 por reacción.
 - **Niveles/XP** con ranking, recompensas por nivel y **Activo del mes**.
 - **Moderación**: borrar, kick, ban, mute, warns.
-- **Utilidades**: encuestas, sugerencias, perfiles de Steam y búsqueda de partida (`!jugar`).
+- **Utilidades**: encuestas, sugerencias, perfiles de Steam y búsqueda de partida (`!jugar` con botón «Me apunto»).
 - **Avisos de releases** del L4D2 Versus Addon Manager vía webhook HTTP.
 
 ### 🔥 Activo del mes
@@ -38,6 +38,23 @@ Solo cuenta el tiempo en el servidor (no el nivel). Cada 6 horas el bot da
 publica un resumen con los nombres (máximo 20 por rango y luego «+X más», sin pings)
 en el canal de logros. **🥇 OG** es un rol manual: el bot nunca lo da ni lo quita, solo
 lo muestra. `!antiguedad` muestra tus días, rango y distinciones.
+
+### 🎮 Convocatorias (`!jugar`) y rangos por partidas
+
+`!jugar [mensaje]` publica en `🎮・buscar-partida` una convocatoria que menciona a los
+**Leftsito** con dos botones: **✋ Me apunto** (alterna apuntarse y salirse; quien
+convoca ya cuenta) y **🔒 Cerrar** (solo quien convocó o un moderador). El embed lista
+los apuntados (hasta 15 nombres y «+X más») y se actualiza en cada clic. La convocatoria
+dura 2 horas: al cerrarse (por tiempo, por el botón o por un clic tardío) se deshabilitan
+los botones y, si se apuntó al menos una persona más, se cuenta **una sola vez**:
++1 «partida» al autor y a cada apuntado, y +1 «convocatoria exitosa» al autor.
+Sin apuntados no se cuenta nada. Los botones sobreviven a los reinicios.
+
+Al llegar a **10 partidas** se gana **🧟 Superviviente** y a **10 convocatorias exitosas**
+**🎯 Convocador**: el bot da el rol, lo anuncia en el canal de logros y nunca lo quita.
+Cada 6 horas revisa estos umbrales como respaldo (sin anunciar). Los IDs de estos roles
+(`ROL_SUPERVIVIENTE_ID`, `ROL_CONVOCADOR_ID`) se configuran en `eito_setup_bot.py`;
+mientras estén en 0 los contadores se registran pero el rol no se asigna.
 
 ### 🏅 Logros
 
@@ -128,11 +145,12 @@ según tus permisos.
 - `!encuesta <pregunta>` — encuesta con 👍👎
 - `!sugerencia <texto>` — sugerencia con votación
 - `!steam <enlace o SteamID>` — publica tu perfil de Steam en el canal de perfiles
-- `!jugar [mensaje]` — avisa a los **Leftsito** que buscas partida (cooldown de 10 min)
+- `!jugar [mensaje]` — busca gente para jugar: avisa a los **Leftsito** y los demás se apuntan con un botón (cooldown de 10 min)
 
 ### Comunidad
 - `!ping`, `!miembros`, `!avatar [@usuario]`, `!serverinfo`
 - `!nivel [@usuario]` — nivel y XP
+- `!perfil [@usuario]` — tu tarjeta: nivel y XP, días y rango de antigüedad, distinciones (🌱 Fundador, 🥇 OG, 🔥 Activo del mes ×N) y progreso hacia 🧟 Superviviente y 🎯 Convocador
 - `!antiguedad [@usuario]` — fecha de entrada, días en el server, rango (Veterano/Leyenda), cuánto falta para el siguiente y distinciones (🌱 Fundador, 🥇 OG)
 - `!top` — ranking de niveles
 - `!ayuda` — lista de comandos
@@ -151,6 +169,8 @@ El bot guarda todo en **PostgreSQL** (`DATABASE_URL`), separado por servidor
 - `xp_mensual` — XP por usuario y mes (Activo del mes)
 - `ganadores_mes` — historial de ganadores (evita premiar dos veces)
 - `fundadores` — los 100 primeros miembros y su puesto (para devolverles el rol)
+- `contadores` — contadores por usuario (partidas, convocatorias exitosas)
+- `lfg_posts` y `lfg_participantes` — convocatorias de `!jugar` y sus apuntados
 - `user_warns` — avisos de moderación
 - `config_servidor` — configuración por servidor (panel +18)
 - `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles y presentaciones (para editarlos)
