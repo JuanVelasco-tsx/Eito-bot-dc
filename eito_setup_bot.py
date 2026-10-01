@@ -1928,7 +1928,7 @@ async def jugar(ctx, *, mensaje: str = ""):
     canal = buscar_canal(guild, CANAL_BUSCAR_PARTIDA)
     if canal is None:
         await ctx.send(
-            f"⚠️ No encuentro el canal {CANAL_BUSCAR_PARTIDA}. Un admin debe correr !setup."
+            f"⚠️ No encuentro el canal {CANAL_BUSCAR_PARTIDA}. Avisa a un admin."
         )
         return
 
