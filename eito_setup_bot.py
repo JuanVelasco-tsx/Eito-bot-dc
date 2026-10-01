@@ -1,7 +1,5 @@
 """EITO SERVER SETUP BOT - crea categorias, canales, roles y da funciones al server."""
 
-import io
-import json
 import os
 import re
 import time
@@ -74,9 +72,16 @@ ROL_COCHIPUERCO = "Cochipuercoso"
 ID_CATEGORIA_NSFW = 1550995935071436800
 # Canales que viven dentro de la categoria NSFW (solo para el mensaje de error).
 CANALES_NSFW = ["los-nudes-de-eito-💪", "6-7", "juegos-h"]
+# ID del rol 🔧 DEVELOPER (tiene acceso a NSFW y queda excluido del Activo del mes).
+ROL_DEVELOPER_ID = 1546590434451787776
 # Roles de staff que ya existen en el server y tienen acceso automatico a NSFW
-# (no se crean con !setup, solo se usan por nombre para permisos).
-ROLES_STAFF_NSFW = ["EITO LA GOAT", "DEVELOPER", "♡ Admins", "・∴Moderador∴・"]
+# (no se crean con !setup, se buscan por ID con guild.get_role()).
+ROLES_STAFF_NSFW = [
+    1544889052011040828,  # 👑 EITO LA GOAT
+    ROL_DEVELOPER_ID,     # 🔧 DEVELOPER
+    1545581826654076979,  # 🛡 Admins
+    1546381843132317736,  # ⁘Moderador⁘
+]
 
 # --- RECOMPENSAS POR NIVEL (canal privado que se desbloquea) ---
 # (nivel requerido, nombre exacto del rol, color, nombre exacto del canal)
@@ -86,10 +91,11 @@ NIVEL_RECOMPENSAS = [
 ]
 
 # --- ACTIVO DEL MES (top de XP mensual; se premia el mes anterior) ---
+# El nombre solo lo usa !setup para crear el rol en servers nuevos; el bot lo
+# busca por ID.
 ROL_ACTIVO_MES = "🔥 Activo del mes"
-# Rol excluido de ser premiado (ademas del dueño y los bots). Es el mismo
-# nombre que aparece en ROLES_STAFF_NSFW.
-ROL_DEVELOPER = "DEVELOPER"
+ROL_ACTIVO_MES_ID = 1555315477893619763
+# Excluidos de ser premiados: el dueño (owner_id), los bots y el rol ROL_DEVELOPER_ID.
 PUESTOS_ACTIVO_MES = 3
 # Cuantos candidatos del top se revisan por si varios estan excluidos o ya salieron.
 CANDIDATOS_ACTIVO_MES = 50
@@ -134,7 +140,6 @@ ESTRUCTURA = [
 
 # --- ROLES (nombre, color, hoist, mentionable) ---
 ROLES = [
-    ("🤖 carl-bot", 0x95A5A6, False, False),
     ("Leftsito", 0xE74C3C, False, True),
     ("🔔 Mod Loader", 0x9184D9, False, True),
     (ROL_ACTIVO_MES, 0xFF5722, True, False),
@@ -394,7 +399,7 @@ def es_excluido_activo(guild, miembro):
     return (
         miembro.bot
         or miembro.id == guild.owner_id
-        or discord.utils.get(miembro.roles, name=ROL_DEVELOPER) is not None
+        or any(rol.id == ROL_DEVELOPER_ID for rol in miembro.roles)
     )
 
 
@@ -463,10 +468,11 @@ async def premiar_activo_mes_guild(guild, mes):
     if await mes_ya_premiado(guild.id, mes):
         return
 
-    rol = discord.utils.get(guild.roles, name=ROL_ACTIVO_MES)
+    rol = guild.get_role(ROL_ACTIVO_MES_ID)
     if rol is None:
-        # Sin rol no se guarda nada: el mes sigue pendiente hasta que corran !setup.
-        print(f"⚠️ [{guild.name}] No existe el rol {ROL_ACTIVO_MES}; corre !setup. "
+        # Sin rol no se guarda nada: el mes sigue pendiente hasta que exista.
+        print(f"⚠️ [{guild.name}] No existe el rol {ROL_ACTIVO_MES} con ID "
+              f"{ROL_ACTIVO_MES_ID}; revisa ROL_ACTIVO_MES_ID. "
               f"Activo del mes {mes} pendiente.")
         return
 
@@ -966,8 +972,8 @@ async def configurar_nsfw(ctx) -> bool:
     try:
         await categoria.set_permissions(guild.default_role, view_channel=False)
         await categoria.set_permissions(rol_cochipuerco, view_channel=True)
-        for nombre_rol in ROLES_STAFF_NSFW:
-            rol = discord.utils.get(guild.roles, name=nombre_rol)
+        for id_rol in ROLES_STAFF_NSFW:
+            rol = guild.get_role(id_rol)
             if rol is not None:
                 await categoria.set_permissions(rol, view_channel=True)
         await categoria.set_permissions(guild.me, view_channel=True)
@@ -1344,116 +1350,6 @@ async def importarniveles_error(ctx, error):
         await ctx.send("❌ Necesitas ser Administrador.")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send("❌ Uso: `!importarniveles <YYYY-MM> [confirmar]`")
-    elif isinstance(error, commands.NoPrivateMessage):
-        await ctx.send("❌ Este comando solo funciona en un servidor.")
-    else:
-        await ctx.send(f"❌ Error: {error}")
-
-
-# =====================================================================
-#  COMANDO: EXPORTARSERVER (TEMPORAL: vuelca roles y canales a JSON por DM)
-# =====================================================================
-def _permisos_activos(permisos):
-    """Nombres de los permisos en True de un objeto discord.Permissions."""
-    return [nombre for nombre, valor in permisos if valor]
-
-
-def _overrides_canal(canal):
-    """Overrides de permisos de un canal: por rol (nombre) o 'usuario:<id>'."""
-    resultado = []
-    for objetivo, ow in canal.overwrites.items():
-        permite, niega = ow.pair()
-        es_rol = isinstance(objetivo, discord.Role)
-        resultado.append({
-            "objetivo": objetivo.name if es_rol else f"usuario:{objetivo.id}",
-            "tipo": "rol" if es_rol else "usuario",
-            "id": objetivo.id,
-            "permite": _permisos_activos(permite),
-            "niega": _permisos_activos(niega),
-        })
-    return resultado
-
-
-def _datos_canal(canal):
-    """Datos exportables de un canal (sin mensajes)."""
-    datos = {
-        "nombre": canal.name,
-        "id": canal.id,
-        "tipo": canal.type.name,
-        "posicion": canal.position,
-        "overrides": _overrides_canal(canal),
-    }
-    if isinstance(canal, (discord.TextChannel, discord.ForumChannel)):
-        datos["tema"] = canal.topic
-        datos["nsfw"] = canal.nsfw
-        datos["slowmode"] = canal.slowmode_delay
-    elif isinstance(canal, (discord.VoiceChannel, discord.StageChannel)):
-        datos["limite_usuarios"] = canal.user_limit
-    return datos
-
-
-@bot.command(name="exportarserver")
-@commands.has_permissions(administrator=True)
-@commands.guild_only()
-async def exportarserver(ctx):
-    guild = ctx.guild
-    rol_bot = guild.me.top_role
-    datos = {
-        "servidor": {
-            "nombre": guild.name,
-            "id": guild.id,
-            "owner_id": guild.owner_id,
-            "miembros": guild.member_count,
-        },
-        "rol_mas_alto_del_bot": {
-            "nombre": rol_bot.name, "id": rol_bot.id, "posicion": rol_bot.position,
-        },
-        "roles": [
-            {
-                "nombre": r.name,
-                "id": r.id,
-                "posicion": r.position,
-                "color": str(r.colour),
-                "hoist": r.hoist,
-                "mencionable": r.mentionable,
-                "managed": r.managed,
-                "miembros": len(r.members),
-                "administrador": r.permissions.administrator,
-                "permisos": _permisos_activos(r.permissions),
-            }
-            for r in sorted(guild.roles, key=lambda r: r.position, reverse=True)
-        ],
-        "categorias": [
-            {
-                "nombre": cat.name,
-                "id": cat.id,
-                "tipo": cat.type.name,
-                "posicion": cat.position,
-                "overrides": _overrides_canal(cat),
-                "canales": [_datos_canal(c) for c in cat.channels],
-            }
-            for cat in guild.categories
-        ],
-        "canales_sin_categoria": [
-            _datos_canal(c) for c in guild.channels
-            if c.category is None and not isinstance(c, discord.CategoryChannel)
-        ],
-    }
-
-    contenido = json.dumps(datos, ensure_ascii=False, indent=2).encode("utf-8")
-    archivo = discord.File(io.BytesIO(contenido), filename=f"eito_export_{guild.id}.json")
-    try:
-        await ctx.author.send("📦 Exportación del servidor:", file=archivo)
-    except discord.Forbidden:
-        await ctx.send("❌ No pude enviarte el archivo por DM. Abre tus mensajes directos y repite el comando.")
-        return
-    await ctx.send("📬 Te mandé la exportación por mensaje directo.")
-
-
-@exportarserver.error
-async def exportarserver_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Necesitas ser Administrador.")
     elif isinstance(error, commands.NoPrivateMessage):
         await ctx.send("❌ Este comando solo funciona en un servidor.")
     else:

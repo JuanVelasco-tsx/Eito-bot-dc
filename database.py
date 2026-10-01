@@ -8,7 +8,7 @@ entre despliegues y escalen mejor que un archivo plano.
 import os
 
 from sqlalchemy import (
-    BigInteger, DateTime, Index, Integer, String, Text, UniqueConstraint, func, select,
+    BigInteger, DateTime, Index, Integer, String, Text, UniqueConstraint, and_, func, select,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
@@ -185,12 +185,25 @@ async def add_xp_mensual(guild_id, user_id, mes, cantidad) -> int:
 async def top_xp_mensual(guild_id, mes, limite) -> list:
     """Devuelve [(user_id, xp), ...] del mes, de mayor a menor XP (ordenado en SQL).
 
-    Ante empate gana quien tiene el registro mas antiguo (id menor)."""
+    Ante empate en XP mensual gana quien tiene mas XP total (user_xp; sin fila
+    cuenta como 0) y, si sigue el empate, quien tiene el registro mas antiguo."""
     async with SessionLocal() as session:
         resultado = await session.execute(
             select(XPMensual.user_id, XPMensual.xp)
+            .select_from(XPMensual)
+            .outerjoin(
+                UserXP,
+                and_(
+                    UserXP.guild_id == XPMensual.guild_id,
+                    UserXP.user_id == XPMensual.user_id,
+                ),
+            )
             .where(XPMensual.guild_id == str(guild_id), XPMensual.mes == mes)
-            .order_by(XPMensual.xp.desc(), XPMensual.id)
+            .order_by(
+                XPMensual.xp.desc(),
+                func.coalesce(UserXP.xp, 0).desc(),
+                XPMensual.id,
+            )
             .limit(limite)
         )
         return [(user_id, xp) for user_id, xp in resultado.all()]
