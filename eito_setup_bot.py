@@ -55,7 +55,7 @@ CANAL_MODLOADER = "🔧・l4d2-mod-loader"
 ROL_MODLOADER = "🔔 Mod Loader"
 
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
-ROL_AUTOMATICO = "COMUNIDAD"
+ROL_AUTOMATICO = "1544900113716084736"
 
 # --- ROL +18 Y ACCESO A LA CATEGORIA NSFW ---
 ROL_COCHIPUERCO = "Cochipuercoso"
@@ -106,9 +106,6 @@ ESTRUCTURA = [
         ("📦・packs", "text"), ("⚙️・autoexec", "text"),
         ("📜・scripts", "text"), ("🗂️・colecciones", "text"),
         (CANAL_STEAM, "text"), (CANAL_MODLOADER, "text")]},
-    {"categoria": "🔊 PA JUGARR", "canales": [
-        (CANAL_BUSCAR_PARTIDA, "text"),
-        ("🎧 Sala de espera", "voice"), ("🎮 Juegos", "voice")]},
     {"categoria": "🛡️ STAFF", "canales": [
         (CANAL_LOGS, "text")]},
     {"categoria": "🔒 EXCLUSIVO", "canales": [
@@ -117,19 +114,14 @@ ESTRUCTURA = [
 
 # --- ROLES (nombre, color, hoist, mentionable) ---
 ROLES = [
-    ("♡ Admins", 0x5865F2, True, True),
-    ("・∴Moderador∴・", 0x9B59B6, True, True),
     ("🤖 carl-bot", 0x95A5A6, False, False),
-    ("COMUNIDAD", 0x2ECC71, True, True),
     ("Leftsito", 0xE74C3C, False, True),
     ("🔔 Mod Loader", 0x9184D9, False, True),
-    ("━━ Plataforma ━━", 0x2F3136, True, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
     ("PlayStation", 0x3498DB, False, True),
     ("Switch", 0xE74C3C, False, True),
     ("Mobile", 0xF1C40F, False, True),
-    ("━━ Región ━━", 0x2F3136, True, False),
     ("Europe", 0x3498DB, False, True),
     ("North America", 0x3498DB, False, True),
     ("South America", 0x3498DB, False, True),
