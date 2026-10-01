@@ -27,11 +27,13 @@ from database import (
     guardar_ganadores,
     hay_fundadores,
     importar_xp_mensual,
+    incrementar_contador,
     mes_ya_premiado,
     set_mensaje_cochipuerco,
     set_mensaje_fijo,
     set_user_xp,
     top_xp_mensual,
+    usuarios_con_contador,
 )
 
 # Cargar variables desde un archivo .env local (si existe).
@@ -133,6 +135,25 @@ ROLES_HONOR_IDS = [ROL_OG_ID]
 DIAS_VETERANO = 90
 DIAS_LEYENDA = 180
 
+# --- RANGOS POR CONTADOR (permanentes: el bot nunca los quita) ---
+# Los nombres solo los usa !setup; el bot busca los roles por ID.
+# TODO: pon aqui los IDs reales. Con 0 el bot nunca asigna el rol, pero los
+# contadores se registran igual (y el rol se da solo cuando haya un ID valido).
+ROL_SUPERVIVIENTE = "🧟 Superviviente"
+ROL_SUPERVIVIENTE_ID = 0
+ROL_CONVOCADOR = "🎯 Convocador"
+ROL_CONVOCADOR_ID = 0
+# (tipo de contador, umbral, ID del rol)
+RANGOS_POR_CONTADOR = [
+    ("partidas", 10, ROL_SUPERVIVIENTE_ID),             # 🧟 Superviviente
+    ("convocatorias_exitosas", 10, ROL_CONVOCADOR_ID),  # 🎯 Convocador
+]
+# Texto del motivo del logro: "<umbral> <nombre>" (p. ej. "10 partidas jugadas")
+NOMBRES_CONTADOR = {
+    "partidas": "partidas jugadas",
+    "convocatorias_exitosas": "convocatorias exitosas",
+}
+
 # --- ROLES QUE SE PUEDEN AUTOASIGNAR CON BOTONES ---
 # (etiqueta del boton, nombre exacto del rol, emoji)
 ROLES_PLATAFORMA = [
@@ -180,6 +201,8 @@ ROLES = [
     (ROL_VETERANO, 0xCD7F32, False, False),
     (ROL_LEYENDA, 0xC0C0C0, False, False),
     (ROL_OG, 0xFFD700, True, False),
+    (ROL_SUPERVIVIENTE, 0x1ABC9C, False, False),
+    (ROL_CONVOCADOR, 0xE74C3C, False, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
     ("PlayStation", 0x3498DB, False, True),
@@ -802,11 +825,99 @@ async def actualizar_rangos():
         except Exception:
             print(f"⚠️ Error actualizando rangos en {guild.name}:")
             traceback.print_exc()
+        # Respaldo de los rangos por contador (sin anunciar), aparte para que un
+        # fallo en uno de los dos bloques no impida el otro.
+        try:
+            await revisar_umbrales_guild(guild)
+        except Exception:
+            print(f"⚠️ Error revisando los rangos por contador en {guild.name}:")
+            traceback.print_exc()
 
 
 @actualizar_rangos.before_loop
 async def antes_de_actualizar_rangos():
     await bot.wait_until_ready()
+
+
+# =====================================================================
+#  RANGOS POR CONTADOR (Superviviente, Convocador: permanentes)
+# =====================================================================
+# Problemas ya avisados por consola: {(guild_id, tipo, motivo)}.
+avisos_contadores = set()
+
+
+def rol_de_contador(guild, tipo, rol_id):
+    """Rol del rango por contador, o None si no se puede dar (ID en 0, rol
+    inexistente o jerarquia insuficiente). Avisa por consola una sola vez."""
+    def avisar(motivo, texto):
+        if (guild.id, tipo, motivo) not in avisos_contadores:
+            avisos_contadores.add((guild.id, tipo, motivo))
+            print(f"⚠️ [{guild.name}] Rango de «{tipo}»: {texto}; no se asigna.")
+
+    if not rol_id:
+        avisar("sin_id", "el ID del rol está en 0 (ROL_*_ID sin configurar)")
+        return None
+    rol = guild.get_role(rol_id)
+    if rol is None:
+        avisar("inexistente", f"no existe el rol con ID {rol_id}")
+        return None
+    if guild.me.top_role <= rol:
+        avisar("jerarquia", f"mi rol más alto debe estar por encima de {rol.name}")
+        return None
+    return rol
+
+
+async def revisar_rango_contador(guild, miembro, tipo, valor, anunciar=True):
+    """Da los roles por umbral de `tipo` a `miembro` si `valor` ya los alcanza y
+    todavia no los tiene. Anuncia el logro cuando `anunciar`. Los roles son
+    permanentes: nunca se quitan. Devuelve cuantos roles dio."""
+    dados = 0
+    for tipo_rango, umbral, rol_id in RANGOS_POR_CONTADOR:
+        if tipo_rango != tipo or valor < umbral:
+            continue
+        rol = rol_de_contador(guild, tipo_rango, rol_id)
+        if rol is None or rol in miembro.roles:
+            continue
+        try:
+            await miembro.add_roles(rol, reason=f"{umbral} {NOMBRES_CONTADOR[tipo_rango]}")
+        except discord.HTTPException as e:
+            print(f"⚠️ [{guild.name}] No pude dar {rol.name} a {miembro}: {e}")
+            continue
+        dados += 1
+        if anunciar:
+            await anunciar_logro(miembro, rol, f"{umbral} {NOMBRES_CONTADOR[tipo_rango]}")
+    return dados
+
+
+async def contar(guild, user_id, tipo, n=1):
+    """Suma `n` al contador `tipo` del usuario y, si ya esta en el server y
+    alcanza un umbral, le da el rol y anuncia el logro. Devuelve el valor nuevo."""
+    valor = await incrementar_contador(guild.id, user_id, tipo, n)
+    miembro = guild.get_member(int(user_id))
+    if miembro is not None and not miembro.bot:
+        try:
+            await revisar_rango_contador(guild, miembro, tipo, valor)
+        except Exception as e:
+            print(f"⚠️ [{guild.name}] Error revisando el rango de {miembro}: {e}")
+    return valor
+
+
+async def revisar_umbrales_guild(guild):
+    """Respaldo (cada 6 h): da los roles por contador a quien ya alcanzo el
+    umbral y no los tiene (p. ej. si el ID estaba en 0 o fallo el envio).
+    No anuncia."""
+    for tipo, umbral, rol_id in RANGOS_POR_CONTADOR:
+        rol = rol_de_contador(guild, tipo, rol_id)
+        if rol is None:
+            continue
+        for user_id in await usuarios_con_contador(guild.id, tipo, umbral):
+            miembro = guild.get_member(int(user_id))
+            if miembro is None or miembro.bot or rol in miembro.roles:
+                continue
+            try:
+                await miembro.add_roles(rol, reason=f"{umbral} {NOMBRES_CONTADOR[tipo]} (respaldo)")
+            except Exception as e:
+                print(f"⚠️ [{guild.name}] No pude dar {rol.name} a {miembro}: {e}")
 
 
 # =====================================================================

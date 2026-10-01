@@ -145,6 +145,23 @@ class Fundador(Base):
     joined_at: Mapped["object"] = mapped_column(DateTime(timezone=True))
 
 
+class Contador(Base):
+    """Contador por usuario y tipo (partidas, convocatorias exitosas...).
+
+    Alimenta los rangos por umbral (Superviviente, Convocador) y !perfil."""
+
+    __tablename__ = "contadores"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "user_id", "tipo", name="uq_contadores_guild_user_tipo"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32))
+    user_id: Mapped[str] = mapped_column(String(32))
+    tipo: Mapped[str] = mapped_column(String(50))
+    valor: Mapped[int] = mapped_column(Integer, default=0)
+
+
 # crear_tablas se llama desde on_ready y desde varios before_loop casi a la vez:
 # sin control, dos create_all concurrentes chocan (DuplicateTableError) cuando
 # hay una tabla nueva. Se ejecuta una sola vez por proceso.
@@ -462,3 +479,46 @@ async def get_fundador(guild_id, user_id):
             )
         )
         return resultado.scalar_one_or_none()
+
+
+# =====================================================================
+#  HELPERS: CONTADORES
+# =====================================================================
+async def incrementar_contador(guild_id, user_id, tipo, n=1) -> int:
+    """Suma `n` al contador `tipo` de un usuario (upsert) y devuelve el valor nuevo."""
+    async with SessionLocal() as session:
+        stmt = pg_insert(Contador).values(
+            guild_id=str(guild_id), user_id=str(user_id), tipo=tipo, valor=n
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["guild_id", "user_id", "tipo"],
+            set_={"valor": Contador.__table__.c.valor + n},
+        ).returning(Contador.valor)
+        resultado = await session.execute(stmt)
+        valor = resultado.scalar_one()
+        await session.commit()
+        return valor
+
+
+async def obtener_contadores(guild_id, user_id) -> dict:
+    """Devuelve {tipo: valor} con todos los contadores de un usuario."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(Contador.tipo, Contador.valor).where(
+                Contador.guild_id == str(guild_id), Contador.user_id == str(user_id)
+            )
+        )
+        return {tipo: valor for tipo, valor in resultado.all()}
+
+
+async def usuarios_con_contador(guild_id, tipo, minimo) -> list:
+    """IDs (str) de los usuarios cuyo contador `tipo` es >= `minimo`."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(Contador.user_id).where(
+                Contador.guild_id == str(guild_id),
+                Contador.tipo == tipo,
+                Contador.valor >= minimo,
+            )
+        )
+        return [user_id for (user_id,) in resultado.all()]
