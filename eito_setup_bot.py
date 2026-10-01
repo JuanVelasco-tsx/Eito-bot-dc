@@ -64,6 +64,9 @@ CANAL_SUGERENCIAS = "💡・sugerencias"
 CANAL_LOGS = "🛡️・registros"
 CANAL_STEAM = "🎮・perfiles-steam"
 CANAL_BUSCAR_PARTIDA = "🎮・buscar-partida"
+# Canal de logros: lo crea el admin a mano (no esta en ESTRUCTURA). Si no
+# existe, los logros se anuncian en el canal de niveles.
+CANAL_LOGROS = "🏅・logros"
 
 # --- ROL DE AVISOS DE PARTIDA (opt-in) ---
 ROL_LEFTSITO = "Leftsito"
@@ -124,6 +127,9 @@ ROL_LEYENDA_ID = 1555339179406262332
 # OG es manual: el bot nunca lo da ni lo quita, solo lo muestra en !antiguedad.
 ROL_OG = "🥇 OG"
 ROL_OG_ID = 1555339224637775954
+# Roles de honor que da el staff a mano: al AGREGARSE a un miembro se anuncia
+# un logro ("Reconocido por el staff"). Quitarlos o cualquier otro rol no anuncia.
+ROLES_HONOR_IDS = [ROL_OG_ID]
 DIAS_VETERANO = 90
 DIAS_LEYENDA = 180
 
@@ -200,15 +206,20 @@ def _sin_selector_emoji(nombre):
     return nombre.replace("\ufe0f", "")
 
 
+def buscar_canal_tolerante(guild, nombre):
+    """Canal de texto `nombre` o None; tolera el selector de variacion de emoji."""
+    objetivo = _sin_selector_emoji(nombre)
+    return next(
+        (c for c in guild.text_channels if _sin_selector_emoji(c.name) == objetivo),
+        None,
+    )
+
+
 def mencion_canal(guild, nombre):
     """Mencion clicable del canal de texto `nombre`, o '#nombre' si no existe.
 
     Se resuelve en tiempo real y tolera el selector de variacion de emoji."""
-    objetivo = _sin_selector_emoji(nombre)
-    canal = next(
-        (c for c in guild.text_channels if _sin_selector_emoji(c.name) == objetivo),
-        None,
-    )
+    canal = buscar_canal_tolerante(guild, nombre)
     return canal.mention if canal else f"#{nombre}"
 
 
@@ -660,6 +671,72 @@ async def antes_de_premiar_activo_mes():
 
 
 # =====================================================================
+#  LOGROS (anuncios en el canal de logros)
+# =====================================================================
+def canal_logros(guild):
+    """Canal de logros (tolera U+FE0F); si no existe, el canal de niveles; si
+    tampoco, None."""
+    return buscar_canal_tolerante(guild, CANAL_LOGROS) or buscar_canal(guild, CANAL_NIVELES)
+
+
+async def anunciar_logro(miembro, rol, motivo):
+    """Anuncia que `miembro` consiguio `rol` en el canal de logros.
+
+    Embed con el color del rol, el motivo en una linea y el avatar. Solo se
+    menciona (ping) al propio miembro. Devuelve True si se pudo publicar."""
+    canal = canal_logros(miembro.guild)
+    if canal is None:
+        print(f"⚠️ [{miembro.guild.name}] No hay canal de logros ({CANAL_LOGROS}) ni de "
+              f"niveles para anunciar {rol.name} de {miembro}.")
+        return False
+    color = rol.colour if rol.colour.value else discord.Colour(0xF1C40F)
+    embed = discord.Embed(
+        description=f"🏅 ¡{miembro.mention} consiguió {rol.mention}!\n{motivo}",
+        colour=color,
+    )
+    embed.set_thumbnail(url=miembro.display_avatar.url)
+    try:
+        # El ping real va en el contenido: las menciones dentro de un embed no notifican.
+        await canal.send(
+            content=miembro.mention,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(
+                users=[miembro], roles=False, everyone=False
+            ),
+        )
+    except discord.HTTPException as e:
+        print(f"⚠️ [{miembro.guild.name}] No pude anunciar el logro de {miembro}: {e}")
+        return False
+    return True
+
+
+MAX_NOMBRES_RESUMEN = 20
+
+
+def lista_nombres(miembros):
+    """Nombres (sin menciones) de hasta MAX_NOMBRES_RESUMEN miembros y '+X más'."""
+    nombres = ", ".join(
+        discord.utils.escape_markdown(m.display_name)
+        for m in miembros[:MAX_NOMBRES_RESUMEN]
+    )
+    resto = len(miembros) - MAX_NOMBRES_RESUMEN
+    return f"{nombres} +{resto} más" if resto > 0 else nombres
+
+
+def texto_resumen_rangos(veteranos, leyendas):
+    """Resumen de ascensos por antiguedad, con los nombres de cada rango."""
+    lineas = [
+        f"🎖️ Hoy {len(veteranos)} nuevos Veteranos y {len(leyendas)} nuevas Leyendas. "
+        "¡Gracias por seguir en EITO!"
+    ]
+    if veteranos:
+        lineas.append(f"🥉 **Veteranos:** {lista_nombres(veteranos)}")
+    if leyendas:
+        lineas.append(f"🥈 **Leyendas:** {lista_nombres(leyendas)}")
+    return "\n".join(lineas)
+
+
+# =====================================================================
 #  RANGOS POR ANTIGUEDAD (Veterano / Leyenda, solo por tiempo en el server)
 # =====================================================================
 # Problemas ya avisados por consola: {(guild_id, "roles" | "jerarquia")}.
@@ -671,7 +748,7 @@ async def actualizar_rangos_guild(guild):
     de entrada. Leyenda quita Veterano. Nunca quita Leyenda/Veterano por otra
     razon y nunca toca OG ni Fundador.
 
-    Devuelve (nuevos_veteranos, nuevas_leyendas)."""
+    Devuelve (nuevos_veteranos, nuevas_leyendas) como listas de miembros."""
     veterano = guild.get_role(ROL_VETERANO_ID)
     leyenda = guild.get_role(ROL_LEYENDA_ID)
     if veterano is None or leyenda is None:
@@ -679,16 +756,16 @@ async def actualizar_rangos_guild(guild):
             avisos_rangos.add((guild.id, "roles"))
             print(f"⚠️ [{guild.name}] No existen los roles de rangos (revisa "
                   f"ROL_VETERANO_ID y ROL_LEYENDA_ID); salto este servidor.")
-        return 0, 0
+        return [], []
     if guild.me.top_role <= veterano or guild.me.top_role <= leyenda:
         if (guild.id, "jerarquia") not in avisos_rangos:
             avisos_rangos.add((guild.id, "jerarquia"))
             print(f"⚠️ [{guild.name}] Mi rol más alto debe estar por encima de "
                   f"{veterano.name} y {leyenda.name}; salto este servidor.")
-        return 0, 0
+        return [], []
 
     ahora = datetime.now(timezone.utc)
-    nuevos_veteranos = nuevas_leyendas = 0
+    nuevos_veteranos, nuevas_leyendas = [], []
     for miembro in list(guild.members):
         try:
             if miembro.bot or miembro.joined_at is None:
@@ -697,13 +774,13 @@ async def actualizar_rangos_guild(guild):
             if dias >= DIAS_LEYENDA:
                 if leyenda not in miembro.roles:
                     await miembro.add_roles(leyenda, reason="Rango por antigüedad")
-                    nuevas_leyendas += 1
+                    nuevas_leyendas.append(miembro)
                 if veterano in miembro.roles:
                     await miembro.remove_roles(veterano, reason="Ahora es Leyenda")
             elif dias >= DIAS_VETERANO:
                 if veterano not in miembro.roles and leyenda not in miembro.roles:
                     await miembro.add_roles(veterano, reason="Rango por antigüedad")
-                    nuevos_veteranos += 1
+                    nuevos_veteranos.append(miembro)
         except Exception as e:
             print(f"⚠️ [{guild.name}] Error con los rangos de {miembro}: {e}")
     return nuevos_veteranos, nuevas_leyendas
@@ -716,11 +793,10 @@ async def actualizar_rangos():
         try:
             nuevos_veteranos, nuevas_leyendas = await actualizar_rangos_guild(guild)
             if nuevos_veteranos or nuevas_leyendas:
-                canal = buscar_canal(guild, CANAL_NIVELES)
+                canal = canal_logros(guild)
                 if canal is not None:
                     await canal.send(
-                        f"🎖️ Hoy {nuevos_veteranos} nuevos Veteranos y {nuevas_leyendas} "
-                        "nuevas Leyendas. ¡Gracias por seguir en EITO!",
+                        texto_resumen_rangos(nuevos_veteranos, nuevas_leyendas),
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
         except Exception:
@@ -944,6 +1020,20 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
             guild,
             f"⚠️ Sin permisos para quitar el rol **{ROL_COCHIPUERCO}** a {miembro}.",
         )
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    """Anuncia un logro cuando el staff AGREGA un rol de honor a un miembro."""
+    if before.roles == after.roles:
+        return
+    antes = {rol.id for rol in before.roles}
+    try:
+        for rol in after.roles:
+            if rol.id not in antes and rol.id in ROLES_HONOR_IDS:
+                await anunciar_logro(after, rol, "Reconocido por el staff")
+    except Exception as e:
+        print(f"⚠️ Error anunciando un rol de honor de {after}: {e}")
 
 
 def embed_bienvenida(member):

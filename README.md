@@ -35,8 +35,18 @@ guarda en la base de datos: si un fundador sale y vuelve a entrar, recupera el r
 Solo cuenta el tiempo en el servidor (no el nivel). Cada 6 horas el bot da
 **🥉 Veterano** a quien lleva 90 días o más y **🥈 Leyenda** a quien lleva 180 o más
 (Leyenda reemplaza a Veterano). Nunca los quita por otra razón. Si hubo ascensos,
-publica un resumen en el canal de niveles. **🥇 OG** es un rol manual: el bot nunca
-lo da ni lo quita, solo lo muestra. `!antiguedad` muestra tus días, rango y distinciones.
+publica un resumen con los nombres (máximo 20 por rango y luego «+X más», sin pings)
+en el canal de logros. **🥇 OG** es un rol manual: el bot nunca lo da ni lo quita, solo
+lo muestra. `!antiguedad` muestra tus días, rango y distinciones.
+
+### 🏅 Logros
+
+Los logros se anuncian en el canal **🏅・logros** (lo creas tú a mano; si no existe se
+usa el canal de niveles): un embed con el color del rol, quién lo consiguió, el motivo
+y su avatar, mencionando solo a esa persona. Además, cuando el staff **agrega a mano**
+un rol de honor (hoy 🥇 OG, lista `ROLES_HONOR_IDS`), el bot lo anuncia con el motivo
+«Reconocido por el staff». Quitar el rol, o dar cualquier otro rol, no anuncia nada.
+El Activo del mes sigue anunciándose en el canal de niveles.
 
 ## 🚀 Instalación
 
