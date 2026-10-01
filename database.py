@@ -5,6 +5,7 @@ tablas en una base de datos PostgreSQL, para que los datos persistan
 entre despliegues y escalen mejor que un archivo plano.
 """
 
+import asyncio
 import os
 
 from sqlalchemy import (
@@ -144,10 +145,28 @@ class Fundador(Base):
     joined_at: Mapped["object"] = mapped_column(DateTime(timezone=True))
 
 
+# crear_tablas se llama desde on_ready y desde varios before_loop casi a la vez:
+# sin control, dos create_all concurrentes chocan (DuplicateTableError) cuando
+# hay una tabla nueva. Se ejecuta una sola vez por proceso.
+_tablas_lock = asyncio.Lock()
+_tablas_creadas = False
+
+
 async def crear_tablas():
-    """Crea las tablas en la base de datos si todavia no existen."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Crea las tablas en la base de datos si todavia no existen.
+
+    Solo hace el trabajo una vez por proceso: las llamadas concurrentes esperan
+    al lock y retornan sin hacer nada. Si la creacion falla no se marca como
+    hecha, para que una llamada posterior lo reintente."""
+    global _tablas_creadas
+    if _tablas_creadas:
+        return
+    async with _tablas_lock:
+        if _tablas_creadas:
+            return
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        _tablas_creadas = True
 
 
 # =====================================================================
