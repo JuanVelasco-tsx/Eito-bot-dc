@@ -9,7 +9,8 @@ import asyncio
 import os
 
 from sqlalchemy import (
-    BigInteger, DateTime, Index, Integer, String, Text, UniqueConstraint, and_, func, select,
+    BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint,
+    and_, delete, func, select, update,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
@@ -160,6 +161,33 @@ class Contador(Base):
     user_id: Mapped[str] = mapped_column(String(32))
     tipo: Mapped[str] = mapped_column(String(50))
     valor: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LfgPost(Base):
+    """Convocatoria de !jugar (un mensaje con botones "Me apunto" / "Cerrar")."""
+
+    __tablename__ = "lfg_posts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32), index=True)
+    canal_id: Mapped[str] = mapped_column(String(32))
+    mensaje_id: Mapped[str] = mapped_column(String(32), unique=True)
+    autor_id: Mapped[str] = mapped_column(String(32))
+    creado: Mapped["object"] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    estado: Mapped[str] = mapped_column(String(10), default="abierta", server_default="abierta")
+
+
+class LfgParticipante(Base):
+    """Usuario apuntado a una convocatoria (sin incluir al autor)."""
+
+    __tablename__ = "lfg_participantes"
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id", name="uq_lfg_participantes_post_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("lfg_posts.id", ondelete="CASCADE"))
+    user_id: Mapped[str] = mapped_column(String(32))
 
 
 # crear_tablas se llama desde on_ready y desde varios before_loop casi a la vez:
@@ -522,3 +550,93 @@ async def usuarios_con_contador(guild_id, tipo, minimo) -> list:
             )
         )
         return [user_id for (user_id,) in resultado.all()]
+
+
+# =====================================================================
+#  HELPERS: CONVOCATORIAS (!jugar)
+# =====================================================================
+def _lfg_dict(post) -> dict:
+    return {
+        "id": post.id, "guild_id": post.guild_id, "canal_id": post.canal_id,
+        "mensaje_id": post.mensaje_id, "autor_id": post.autor_id,
+        "creado": post.creado, "estado": post.estado,
+    }
+
+
+async def crear_lfg_post(guild_id, canal_id, mensaje_id, autor_id) -> int:
+    """Registra una convocatoria abierta y devuelve su id."""
+    async with SessionLocal() as session:
+        post = LfgPost(
+            guild_id=str(guild_id), canal_id=str(canal_id),
+            mensaje_id=str(mensaje_id), autor_id=str(autor_id),
+        )
+        session.add(post)
+        await session.commit()
+        return post.id
+
+
+async def get_lfg_post_por_mensaje(mensaje_id):
+    """Devuelve la convocatoria (dict) de ese mensaje, o None si no esta registrada."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(LfgPost).where(LfgPost.mensaje_id == str(mensaje_id))
+        )
+        post = resultado.scalar_one_or_none()
+        return _lfg_dict(post) if post else None
+
+
+async def alternar_participante(post_id, user_id) -> bool:
+    """Apunta al usuario si no estaba, o lo saca si estaba.
+
+    Devuelve True si queda apuntado. Nunca duplica (UNIQUE post+usuario)."""
+    async with SessionLocal() as session:
+        borrado = await session.execute(
+            delete(LfgParticipante)
+            .where(LfgParticipante.post_id == post_id, LfgParticipante.user_id == str(user_id))
+            .returning(LfgParticipante.id)
+        )
+        if borrado.first() is not None:
+            await session.commit()
+            return False
+        stmt = pg_insert(LfgParticipante).values(post_id=post_id, user_id=str(user_id))
+        stmt = stmt.on_conflict_do_nothing(index_elements=["post_id", "user_id"])
+        await session.execute(stmt)
+        await session.commit()
+        return True
+
+
+async def listar_participantes(post_id) -> list:
+    """IDs (str) de los apuntados, en el orden en que se apuntaron."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(LfgParticipante.user_id)
+            .where(LfgParticipante.post_id == post_id)
+            .order_by(LfgParticipante.id)
+        )
+        return [user_id for (user_id,) in resultado.all()]
+
+
+async def cerrar_lfg_post(post_id) -> bool:
+    """Cierra la convocatoria de forma atomica.
+
+    Devuelve True solo si ESTA llamada la cerro (estaba abierta); asi el conteo
+    de partidas se hace una unica vez aunque haya cierres concurrentes."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            update(LfgPost)
+            .where(LfgPost.id == post_id, LfgPost.estado == "abierta")
+            .values(estado="cerrada")
+            .returning(LfgPost.id)
+        )
+        cerrada = resultado.first() is not None
+        await session.commit()
+        return cerrada
+
+
+async def lfg_posts_vencidos(corte) -> list:
+    """Convocatorias abiertas creadas antes de `corte` (datetime con zona horaria)."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(LfgPost).where(LfgPost.estado == "abierta", LfgPost.creado < corte)
+        )
+        return [_lfg_dict(p) for p in resultado.scalars().all()]

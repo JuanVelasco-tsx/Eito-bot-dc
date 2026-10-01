@@ -16,9 +16,13 @@ from database import (
     add_user_xp,
     add_warn,
     add_xp_mensual,
+    alternar_participante,
+    cerrar_lfg_post,
+    crear_lfg_post,
     crear_tablas,
     get_all_xp,
     get_fundador,
+    get_lfg_post_por_mensaje,
     get_mensaje_cochipuerco,
     get_mensaje_fijo,
     get_user_xp,
@@ -28,6 +32,8 @@ from database import (
     hay_fundadores,
     importar_xp_mensual,
     incrementar_contador,
+    lfg_posts_vencidos,
+    listar_participantes,
     mes_ya_premiado,
     set_mensaje_cochipuerco,
     set_mensaje_fijo,
@@ -445,6 +451,10 @@ async def setup_hook():
         premiar_activo_mes.start()
     if not actualizar_rangos.is_running():
         actualizar_rangos.start()
+    # Vista persistente de las convocatorias de !jugar (botones con custom_id fijo)
+    bot.add_view(LfgView())
+    if not cerrar_convocatorias_vencidas.is_running():
+        cerrar_convocatorias_vencidas.start()
 
 
 # =====================================================================
@@ -2510,6 +2520,198 @@ async def steam_error(ctx, error):
 
 
 # =====================================================================
+#  CONVOCATORIAS DE !jugar (botones "Me apunto" / "Cerrar", expiracion y conteo)
+# =====================================================================
+LFG_DURACION = timedelta(hours=2)   # una convocatoria dura 2 horas
+MAX_APUNTADOS_EMBED = 15            # nombres que se muestran en el embed
+
+
+def actualizar_embed_lfg(embed, guild, participantes, cerrada=False):
+    """Actualiza el field "Apuntados" del embed (y, si `cerrada`, el titulo y el
+    color). `participantes` son IDs; se muestran hasta MAX_APUNTADOS_EMBED nombres."""
+    nombres = []
+    for user_id in participantes[:MAX_APUNTADOS_EMBED]:
+        miembro = guild.get_member(int(user_id))
+        nombres.append(
+            discord.utils.escape_markdown(miembro.display_name) if miembro else f"Usuario {user_id}"
+        )
+    valor = ", ".join(nombres) if nombres else "Nadie todavía"
+    resto = len(participantes) - MAX_APUNTADOS_EMBED
+    if resto > 0:
+        valor += f" +{resto} más"
+    nombre = f"Apuntados finales ({len(participantes)})" if cerrada else f"Apuntados ({len(participantes)})"
+    for i, campo in enumerate(embed.fields):
+        if campo.name.startswith("Apuntados"):
+            embed.set_field_at(i, name=nombre, value=valor, inline=False)
+            break
+    else:
+        embed.add_field(name=nombre, value=valor, inline=False)
+    if cerrada:
+        embed.title = "🔒 Convocatoria cerrada"
+        embed.colour = discord.Colour(0x95A5A6)
+    return embed
+
+
+def lfg_vencida(post, ahora=None):
+    """True si la convocatoria ya paso LFG_DURACION desde que se creo."""
+    ahora = ahora or datetime.now(timezone.utc)
+    return ahora - post["creado"] >= LFG_DURACION
+
+
+async def contar_convocatoria(guild, post, participantes):
+    """Cuenta una convocatoria cerrada: si hubo al menos un apuntado distinto del
+    autor, +1 "convocatorias_exitosas" al autor y +1 "partidas" al autor y a cada
+    apuntado. Sin apuntados no cuenta nada."""
+    autor_id = int(post["autor_id"])
+    otros = [int(u) for u in participantes if int(u) != autor_id]
+    if not otros:
+        return
+    for tipo, ids in (("convocatorias_exitosas", [autor_id]), ("partidas", [autor_id, *otros])):
+        for user_id in ids:
+            try:
+                await contar(guild, user_id, tipo)
+            except Exception as e:
+                print(f"⚠️ [{guild.name}] No pude contar {tipo} de {user_id}: {e}")
+
+
+async def editar_mensaje_lfg_cerrado(guild, post, participantes):
+    """Edita el mensaje de la convocatoria: "Convocatoria cerrada", lista final y
+    botones deshabilitados. Si el mensaje ya no existe, no hace nada."""
+    canal = guild.get_channel(int(post["canal_id"]))
+    if canal is None:
+        return
+    try:
+        mensaje = await canal.fetch_message(int(post["mensaje_id"]))
+        if not mensaje.embeds:
+            return
+        embed = actualizar_embed_lfg(mensaje.embeds[0], guild, participantes, cerrada=True)
+        await mensaje.edit(embed=embed, view=LfgView(cerrada=True))
+    except discord.NotFound:
+        pass  # el mensaje fue borrado: igual queda cerrada y contada en la BD
+    except discord.HTTPException as e:
+        print(f"⚠️ [{guild.name}] No pude editar la convocatoria {post['mensaje_id']}: {e}")
+
+
+async def cerrar_convocatoria(guild, post):
+    """Cierra la convocatoria (por expiracion, boton o clic tardio).
+
+    El cierre es atomico: solo la llamada que la pasa de "abierta" a "cerrada"
+    cuenta las partidas. Devuelve True si esta llamada fue la que la cerro."""
+    cerrada_ahora = await cerrar_lfg_post(post["id"])
+    participantes = await listar_participantes(post["id"])
+    if cerrada_ahora:
+        await contar_convocatoria(guild, post, participantes)
+    await editar_mensaje_lfg_cerrado(guild, post, participantes)
+    return cerrada_ahora
+
+
+async def lfg_apuntar(interaction):
+    """Boton "Me apunto": alterna apuntarse y salirse (respuesta ephemeral)."""
+    await interaction.response.defer(ephemeral=True)
+    post = await get_lfg_post_por_mensaje(interaction.message.id)
+    if post is None:
+        await interaction.followup.send("❌ Esta convocatoria ya no está registrada.", ephemeral=True)
+        return
+    if post["estado"] != "abierta":
+        await interaction.followup.send("🔒 Esta convocatoria ya cerró.", ephemeral=True)
+        return
+    if lfg_vencida(post):
+        await cerrar_convocatoria(interaction.guild, post)
+        await interaction.followup.send("⏰ Esta convocatoria ya cerró (dura 2 horas).", ephemeral=True)
+        return
+    if str(interaction.user.id) == post["autor_id"]:
+        await interaction.followup.send("✅ Ya estás incluido: eres quien convocó.", ephemeral=True)
+        return
+    se_apunto = await alternar_participante(post["id"], interaction.user.id)
+    participantes = await listar_participantes(post["id"])
+    try:
+        embed = actualizar_embed_lfg(interaction.message.embeds[0], interaction.guild, participantes)
+        await interaction.message.edit(embed=embed)
+    except discord.HTTPException as e:
+        print(f"⚠️ No pude actualizar la convocatoria {post['mensaje_id']}: {e}")
+    await interaction.followup.send(
+        "✋ ¡Te apuntaste!" if se_apunto else "👋 Saliste de la convocatoria.", ephemeral=True
+    )
+
+
+async def lfg_cerrar_click(interaction):
+    """Boton "Cerrar": solo quien convoco o alguien con moderate_members."""
+    await interaction.response.defer(ephemeral=True)
+    post = await get_lfg_post_por_mensaje(interaction.message.id)
+    if post is None:
+        await interaction.followup.send("❌ Esta convocatoria ya no está registrada.", ephemeral=True)
+        return
+    if post["estado"] == "abierta" and lfg_vencida(post):
+        await cerrar_convocatoria(interaction.guild, post)
+        await interaction.followup.send("⏰ Esta convocatoria ya cerró (dura 2 horas).", ephemeral=True)
+        return
+    es_autor = str(interaction.user.id) == post["autor_id"]
+    es_mod = interaction.user.guild_permissions.moderate_members
+    if not (es_autor or es_mod):
+        await interaction.followup.send(
+            "❌ Solo quien convocó o un moderador puede cerrarla.", ephemeral=True
+        )
+        return
+    if post["estado"] != "abierta":
+        await interaction.followup.send("🔒 Esta convocatoria ya estaba cerrada.", ephemeral=True)
+        return
+    cerrada = await cerrar_convocatoria(interaction.guild, post)
+    await interaction.followup.send(
+        "🔒 Convocatoria cerrada." if cerrada else "🔒 Esta convocatoria ya estaba cerrada.",
+        ephemeral=True,
+    )
+
+
+class LfgView(discord.ui.View):
+    """Vista persistente de una convocatoria (custom_id fijos: sobrevive reinicios)."""
+
+    def __init__(self, cerrada=False):
+        super().__init__(timeout=None)
+        if cerrada:
+            for boton in self.children:
+                boton.disabled = True
+
+    @discord.ui.button(label="Me apunto", emoji="✋", style=discord.ButtonStyle.success,
+                       custom_id="lfg:apuntar")
+    async def apuntar(self, interaction: discord.Interaction, boton: discord.ui.Button):
+        await lfg_apuntar(interaction)
+
+    @discord.ui.button(label="Cerrar", emoji="🔒", style=discord.ButtonStyle.secondary,
+                       custom_id="lfg:cerrar")
+    async def cerrar(self, interaction: discord.Interaction, boton: discord.ui.Button):
+        await lfg_cerrar_click(interaction)
+
+
+@tasks.loop(minutes=5)
+async def cerrar_convocatorias_vencidas():
+    """Cada 5 minutos cierra las convocatorias que pasaron LFG_DURACION."""
+    try:
+        vencidas = await lfg_posts_vencidos(datetime.now(timezone.utc) - LFG_DURACION)
+    except Exception:
+        print("⚠️ No pude consultar las convocatorias vencidas:")
+        traceback.print_exc()
+        return
+    for post in vencidas:
+        try:
+            guild = bot.get_guild(int(post["guild_id"]))
+            if guild is not None:
+                await cerrar_convocatoria(guild, post)
+        except Exception:
+            print(f"⚠️ Error cerrando la convocatoria {post['mensaje_id']}:")
+            traceback.print_exc()
+
+
+@cerrar_convocatorias_vencidas.before_loop
+async def antes_de_cerrar_convocatorias():
+    await bot.wait_until_ready()
+    try:
+        await crear_tablas()
+    except Exception:
+        print("⚠️ crear_tablas() fallo antes de las convocatorias:")
+        traceback.print_exc()
+
+
+# =====================================================================
 #  GAMING: JUGAR (convoca a los Leftsito para buscar partida)
 # =====================================================================
 @bot.command(name="jugar")
@@ -2553,19 +2755,33 @@ async def jugar(ctx, *, mensaje: str = ""):
         description=(
             f"**{ctx.author.display_name}** está buscando compañía.\n\n"
             f"💬 {texto_extra}\n\n"
-            "Reacciona con ✅ si te apuntas."
+            "Pulsa **✋ Me apunto** si te unes."
         ),
         colour=discord.Colour(0xE74C3C),
     )
     embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.add_field(name="Apuntados (0)", value="Nadie todavía", inline=False)
 
     # Mencionar al rol Leftsito (permitido explicitamente)
     mensaje_enviado = await canal.send(
         content=f"{rol.mention}",
         embed=embed,
+        view=LfgView(),
         allowed_mentions=discord.AllowedMentions(roles=[rol]),
     )
-    await mensaje_enviado.add_reaction("✅")
+    # Registrar la convocatoria para que los botones funcionen. Si falla la BD,
+    # se retira el mensaje (sus botones no servirian) y se libera el cooldown.
+    try:
+        await crear_lfg_post(guild.id, canal.id, mensaje_enviado.id, ctx.author.id)
+    except Exception as e:
+        print(f"⚠️ No pude registrar la convocatoria de {ctx.author}: {e}")
+        ultimo_jugar.pop(clave, None)
+        try:
+            await mensaje_enviado.delete()
+        except discord.HTTPException:
+            pass
+        await ctx.send("❌ No pude registrar la convocatoria. Inténtalo de nuevo en un momento.")
+        return
 
     # Confirmar al que convoco y limpiar su comando si es en otro canal
     if canal != ctx.channel:
