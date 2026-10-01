@@ -30,6 +30,14 @@ el rol **🌱 Fundador**. Lo asigna una sola vez el dueño o un DEVELOPER con
 `!fundadores` (primero una vista previa, luego `!fundadores confirmar`). La lista se
 guarda en la base de datos: si un fundador sale y vuelve a entrar, recupera el rol.
 
+### 🎖️ Rangos por antigüedad
+
+Solo cuenta el tiempo en el servidor (no el nivel). Cada 6 horas el bot da
+**🥉 Veterano** a quien lleva 90 días o más y **🥈 Leyenda** a quien lleva 180 o más
+(Leyenda reemplaza a Veterano). Nunca los quita por otra razón. Si hubo ascensos,
+publica un resumen en el canal de niveles. **🥇 OG** es un rol manual: el bot nunca
+lo da ni lo quita, solo lo muestra. `!antiguedad` muestra tus días, rango y distinciones.
+
 ## 🚀 Instalación
 
 1. Instala Python 3.12 y las dependencias:
@@ -115,6 +123,7 @@ según tus permisos.
 ### Comunidad
 - `!ping`, `!miembros`, `!avatar [@usuario]`, `!serverinfo`
 - `!nivel [@usuario]` — nivel y XP
+- `!antiguedad [@usuario]` — fecha de entrada, días en el server, rango (Veterano/Leyenda), cuánto falta para el siguiente y distinciones (🌱 Fundador, 🥇 OG)
 - `!top` — ranking de niveles
 - `!ayuda` — lista de comandos
 

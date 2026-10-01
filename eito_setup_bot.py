@@ -116,6 +116,19 @@ ROL_FUNDADOR = "🌱 Fundador"
 ROL_FUNDADOR_ID = 0
 MAX_FUNDADORES = 100
 
+# --- RANGOS POR ANTIGUEDAD (solo tiempo en el server, sin nivel) ---
+# Los nombres solo los usa !setup; el bot busca los roles por ID.
+# TODO: pon aqui los IDs reales (mientras sean 0, el loop de rangos salta el server).
+ROL_VETERANO = "🥉 Veterano"
+ROL_VETERANO_ID = 0
+ROL_LEYENDA = "🥈 Leyenda"
+ROL_LEYENDA_ID = 0
+# OG es manual: el bot nunca lo da ni lo quita, solo lo muestra en !antiguedad.
+ROL_OG = "🥇 OG"
+ROL_OG_ID = 0
+DIAS_VETERANO = 90
+DIAS_LEYENDA = 180
+
 # --- ROLES QUE SE PUEDEN AUTOASIGNAR CON BOTONES ---
 # (etiqueta del boton, nombre exacto del rol, emoji)
 ROLES_PLATAFORMA = [
@@ -160,6 +173,9 @@ ROLES = [
     ("🔔 Mod Loader", 0x9184D9, False, True),
     (ROL_ACTIVO_MES, 0xFF5722, True, False),
     (ROL_FUNDADOR, 0x57F287, False, False),
+    (ROL_VETERANO, 0xCD7F32, False, False),
+    (ROL_LEYENDA, 0xC0C0C0, False, False),
+    (ROL_OG, 0xFFD700, True, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
     ("PlayStation", 0x3498DB, False, True),
@@ -395,6 +411,8 @@ async def setup_hook():
     bot.loop.create_task(start_web_server())
     if not premiar_activo_mes.is_running():
         premiar_activo_mes.start()
+    if not actualizar_rangos.is_running():
+        actualizar_rangos.start()
 
 
 # =====================================================================
@@ -641,6 +659,80 @@ async def antes_de_premiar_activo_mes():
     except Exception:
         print("⚠️ crear_tablas() fallo antes de Activo del mes:")
         traceback.print_exc()
+
+
+# =====================================================================
+#  RANGOS POR ANTIGUEDAD (Veterano / Leyenda, solo por tiempo en el server)
+# =====================================================================
+# Problemas ya avisados por consola: {(guild_id, "roles" | "jerarquia")}.
+avisos_rangos = set()
+
+
+async def actualizar_rangos_guild(guild):
+    """Da Veterano (>= DIAS_VETERANO) o Leyenda (>= DIAS_LEYENDA) segun la fecha
+    de entrada. Leyenda quita Veterano. Nunca quita Leyenda/Veterano por otra
+    razon y nunca toca OG ni Fundador.
+
+    Devuelve (nuevos_veteranos, nuevas_leyendas)."""
+    veterano = guild.get_role(ROL_VETERANO_ID)
+    leyenda = guild.get_role(ROL_LEYENDA_ID)
+    if veterano is None or leyenda is None:
+        if (guild.id, "roles") not in avisos_rangos:
+            avisos_rangos.add((guild.id, "roles"))
+            print(f"⚠️ [{guild.name}] No existen los roles de rangos (revisa "
+                  f"ROL_VETERANO_ID y ROL_LEYENDA_ID); salto este servidor.")
+        return 0, 0
+    if guild.me.top_role <= veterano or guild.me.top_role <= leyenda:
+        if (guild.id, "jerarquia") not in avisos_rangos:
+            avisos_rangos.add((guild.id, "jerarquia"))
+            print(f"⚠️ [{guild.name}] Mi rol más alto debe estar por encima de "
+                  f"{veterano.name} y {leyenda.name}; salto este servidor.")
+        return 0, 0
+
+    ahora = datetime.now(timezone.utc)
+    nuevos_veteranos = nuevas_leyendas = 0
+    for miembro in list(guild.members):
+        try:
+            if miembro.bot or miembro.joined_at is None:
+                continue
+            dias = (ahora - miembro.joined_at).days
+            if dias >= DIAS_LEYENDA:
+                if leyenda not in miembro.roles:
+                    await miembro.add_roles(leyenda, reason="Rango por antigüedad")
+                    nuevas_leyendas += 1
+                if veterano in miembro.roles:
+                    await miembro.remove_roles(veterano, reason="Ahora es Leyenda")
+            elif dias >= DIAS_VETERANO:
+                if veterano not in miembro.roles and leyenda not in miembro.roles:
+                    await miembro.add_roles(veterano, reason="Rango por antigüedad")
+                    nuevos_veteranos += 1
+        except Exception as e:
+            print(f"⚠️ [{guild.name}] Error con los rangos de {miembro}: {e}")
+    return nuevos_veteranos, nuevas_leyendas
+
+
+@tasks.loop(hours=6)
+async def actualizar_rangos():
+    """Cada 6 horas actualiza Veterano/Leyenda; publica un resumen si hubo ascensos."""
+    for guild in bot.guilds:
+        try:
+            nuevos_veteranos, nuevas_leyendas = await actualizar_rangos_guild(guild)
+            if nuevos_veteranos or nuevas_leyendas:
+                canal = buscar_canal(guild, CANAL_NIVELES)
+                if canal is not None:
+                    await canal.send(
+                        f"🎖️ Hoy {nuevos_veteranos} nuevos Veteranos y {nuevas_leyendas} "
+                        "nuevas Leyendas. ¡Gracias por seguir en EITO!",
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+        except Exception:
+            print(f"⚠️ Error actualizando rangos en {guild.name}:")
+            traceback.print_exc()
+
+
+@actualizar_rangos.before_loop
+async def antes_de_actualizar_rangos():
+    await bot.wait_until_ready()
 
 
 # =====================================================================
@@ -2332,6 +2424,77 @@ async def nivel_error(ctx, error):
 
 
 # =====================================================================
+#  COMUNIDAD: ANTIGUEDAD (dias en el server, rango y distinciones)
+# =====================================================================
+@bot.command(name="antiguedad")
+@commands.guild_only()
+async def antiguedad(ctx, miembro: discord.Member = None):
+    miembro = miembro or ctx.author
+    ahora = datetime.now(timezone.utc)
+    ids_roles = {rol.id for rol in miembro.roles}
+    dias = (ahora - miembro.joined_at).days if miembro.joined_at else None
+
+    # Rango: por dias en el server, o por tener ya el rol (p. ej. puesto a mano)
+    es_leyenda = ROL_LEYENDA_ID in ids_roles or (dias is not None and dias >= DIAS_LEYENDA)
+    es_veterano = ROL_VETERANO_ID in ids_roles or (dias is not None and dias >= DIAS_VETERANO)
+    if es_leyenda:
+        rango = f"{ROL_LEYENDA}"
+        siguiente = "Rango máximo alcanzado 🎉"
+    elif es_veterano:
+        rango = f"{ROL_VETERANO}"
+        siguiente = (
+            f"{ROL_LEYENDA} en **{max(DIAS_LEYENDA - dias, 0)}** días"
+            if dias is not None else "—"
+        )
+    else:
+        rango = "Ninguno todavía"
+        siguiente = (
+            f"{ROL_VETERANO} en **{max(DIAS_VETERANO - dias, 0)}** días"
+            if dias is not None else "—"
+        )
+
+    embed = discord.Embed(
+        title=f"🕰️ Antigüedad de {miembro.display_name}",
+        colour=discord.Colour(0x3498DB),
+    )
+    embed.set_thumbnail(url=miembro.display_avatar.url)
+    if dias is not None:
+        embed.add_field(
+            name="📅 Entró el",
+            value=f"{fecha_corta(miembro.joined_at)} · **{dias}** días en el server",
+            inline=False,
+        )
+    else:
+        embed.add_field(name="📅 Entró el", value="Fecha desconocida", inline=False)
+    embed.add_field(name="🎖️ Rango actual", value=rango, inline=True)
+    embed.add_field(name="⏭️ Siguiente rango", value=siguiente, inline=True)
+
+    distinciones = []
+    try:
+        puesto = await get_fundador(ctx.guild.id, miembro.id)
+    except Exception as e:
+        puesto = None
+        print(f"⚠️ No pude consultar el puesto de fundador de {miembro}: {e}")
+    if puesto is not None:
+        distinciones.append(f"🌱 Fundador #{puesto}")
+    if ROL_OG_ID in ids_roles:
+        distinciones.append("🥇 OG")
+    if distinciones:
+        embed.add_field(name="🏅 Distinciones", value="\n".join(distinciones), inline=False)
+    await ctx.send(embed=embed)
+
+
+@antiguedad.error
+async def antiguedad_error(ctx, error):
+    if isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ No encuentro a ese miembro.")
+    elif isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
 #  COMUNIDAD: TOP (ranking de niveles)
 # =====================================================================
 @bot.command(name="top")
@@ -2435,6 +2598,7 @@ AYUDA_SECCIONES = [
         ("nivel", "`!nivel [@usuario]` — muestra tu nivel y XP", None),
         ("top", "`!top` — ranking de niveles del servidor", None),
         ("warns", "`!warns` — muestra tus avisos", None),
+        ("antiguedad", "`!antiguedad [@usuario]` — días en el server, rango y distinciones", None),
         ("ayuda", "`!ayuda` — muestra esta lista", None),
     ]),
     ("📊 Utilidad", [
