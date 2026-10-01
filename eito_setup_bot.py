@@ -1,23 +1,31 @@
 """EITO SERVER SETUP BOT - crea categorias, canales, roles y da funciones al server."""
 
+import io
+import json
 import os
 import re
 import time
-from datetime import timedelta
+import traceback
+from datetime import datetime, timedelta, timezone
 
 import discord
 from aiohttp import web
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from database import (
     add_user_xp,
     add_warn,
+    add_xp_mensual,
     crear_tablas,
     get_all_xp,
     get_mensaje_cochipuerco,
     get_user_xp,
     get_warns,
+    guardar_ganadores,
+    importar_xp_mensual,
+    mes_ya_premiado,
     set_mensaje_cochipuerco,
+    top_xp_mensual,
 )
 
 # Cargar variables desde un archivo .env local (si existe).
@@ -35,6 +43,9 @@ TOKEN = os.getenv("DISCORD_TOKEN", "PON_TU_TOKEN_AQUI")
 RELEASE_CHANNEL_ID = os.getenv("RELEASE_CHANNEL_ID")
 RELEASE_WEBHOOK_SECRET = os.getenv("RELEASE_WEBHOOK_SECRET")
 WEBHOOK_PORT = int(os.getenv("PORT", "8080"))
+
+# --- SERVIDOR PRINCIPAL (si esta definido, !darnivel se bloquea en este server) ---
+EITO_GUILD_ID = (os.getenv("EITO_GUILD_ID") or "").strip()
 
 # --- NOMBRES DE CANALES CLAVE (deben coincidir con los creados en el setup) ---
 CANAL_BIENVENIDA = "👋・bienvenida"
@@ -73,6 +84,15 @@ CANAL_NIVEL_10 = "🔓・nivel-10"
 NIVEL_RECOMPENSAS = [
     (10, "🔓 Nivel 10", 0x1ABC9C, CANAL_NIVEL_10),
 ]
+
+# --- ACTIVO DEL MES (top de XP mensual; se premia el mes anterior) ---
+ROL_ACTIVO_MES = "🔥 Activo del mes"
+# Rol excluido de ser premiado (ademas del dueño y los bots). Es el mismo
+# nombre que aparece en ROLES_STAFF_NSFW.
+ROL_DEVELOPER = "DEVELOPER"
+PUESTOS_ACTIVO_MES = 3
+# Cuantos candidatos del top se revisan por si varios estan excluidos o ya salieron.
+CANDIDATOS_ACTIVO_MES = 50
 
 # --- ROLES QUE SE PUEDEN AUTOASIGNAR CON BOTONES ---
 # (etiqueta del boton, nombre exacto del rol, emoji)
@@ -117,6 +137,7 @@ ROLES = [
     ("🤖 carl-bot", 0x95A5A6, False, False),
     ("Leftsito", 0xE74C3C, False, True),
     ("🔔 Mod Loader", 0x9184D9, False, True),
+    (ROL_ACTIVO_MES, 0xFF5722, True, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
     ("PlayStation", 0x3498DB, False, True),
@@ -291,7 +312,11 @@ async def setup_hook():
         print("\u26a0\ufe0f  RELEASE_CHANNEL_ID no definido. El endpoint /release-webhook no podra enviar mensajes.")
     if not RELEASE_WEBHOOK_SECRET:
         print("\u26a0\ufe0f  RELEASE_WEBHOOK_SECRET no definido. El endpoint /release-webhook rechazara todas las peticiones.")
+    if not EITO_GUILD_ID:
+        print("⚠️  EITO_GUILD_ID no definido. !darnivel funciona en cualquier servidor, incluido el de produccion.")
     bot.loop.create_task(start_web_server())
+    if not premiar_activo_mes.is_running():
+        premiar_activo_mes.start()
 
 
 # =====================================================================
@@ -322,6 +347,55 @@ def nivel_desde_xp(xp):
         xp -= xp_necesaria(nivel)
         nivel += 1
     return nivel
+
+
+def xp_acumulada(nivel):
+    """XP total necesaria para alcanzar `nivel` (0 si nivel <= 0).
+
+    Es la inversa de nivel_desde_xp: la misma suma que usa !darnivel."""
+    return sum(xp_necesaria(n) for n in range(max(nivel, 0)))
+
+
+# Texto EXACTO del aviso de subida de nivel (lo envia on_message). Lo usa
+# tambien !importarniveles para reconocer esos avisos en el historial.
+AVISO_NIVEL = "🎉 ¡{mencion} subió al **nivel {nivel}**!"
+# Misma plantilla convertida en regex: acepta <@id> y <@!id>, nivel de 1 a 4 digitos.
+REGEX_AVISO_NIVEL = re.compile(
+    re.escape(AVISO_NIVEL)
+    .replace(re.escape("{mencion}"), r"<@!?(\d+)>")
+    .replace(re.escape("{nivel}"), r"(\d{1,4})")
+)
+
+
+def mes_utc(fecha=None):
+    """Mes de `fecha` (por defecto ahora) en UTC como 'YYYY-MM'."""
+    fecha = fecha or datetime.now(timezone.utc)
+    return fecha.strftime("%Y-%m")
+
+
+def mes_anterior_utc(fecha=None):
+    """Mes anterior al de `fecha` (por defecto ahora) en UTC como 'YYYY-MM'."""
+    fecha = fecha or datetime.now(timezone.utc)
+    return (fecha.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+
+def limites_mes_utc(mes):
+    """Devuelve (inicio, fin) UTC del mes 'YYYY-MM'; fin es exclusivo."""
+    anio, num = int(mes[:4]), int(mes[5:7])
+    inicio = datetime(anio, num, 1, tzinfo=timezone.utc)
+    fin = datetime(anio + (num == 12), num % 12 + 1, 1, tzinfo=timezone.utc)
+    return inicio, fin
+
+
+def es_excluido_activo(guild, miembro):
+    """True si el miembro no puede ganar el Activo del mes (bot, dueño o DEVELOPER).
+
+    Se evalua al premiar, no al ganar XP. Admins y moderadores SI participan."""
+    return (
+        miembro.bot
+        or miembro.id == guild.owner_id
+        or discord.utils.get(miembro.roles, name=ROL_DEVELOPER) is not None
+    )
 
 
 def buscar_canal(guild, nombre):
@@ -364,6 +438,130 @@ async def otorgar_recompensas(guild, member, nivel_previo, nivel_nuevo, canal_av
                 )
             except discord.Forbidden:
                 pass
+
+
+# =====================================================================
+#  ACTIVO DEL MES (premio mensual al top de XP del mes anterior)
+# =====================================================================
+async def obtener_miembro(guild, user_id):
+    """Miembro por ID (cache o API). None si ya no esta en el server."""
+    miembro = guild.get_member(user_id)
+    if miembro is not None:
+        return miembro
+    try:
+        return await guild.fetch_member(user_id)
+    except discord.NotFound:
+        return None
+
+
+# (guild_id, mes) cuyo problema de jerarquia ya se aviso en el canal de logs.
+avisos_jerarquia_activo_mes = set()
+
+
+async def premiar_activo_mes_guild(guild, mes):
+    """Premia el top del mes `mes` en un servidor si todavia no se premio."""
+    if await mes_ya_premiado(guild.id, mes):
+        return
+
+    rol = discord.utils.get(guild.roles, name=ROL_ACTIVO_MES)
+    if rol is None:
+        # Sin rol no se guarda nada: el mes sigue pendiente hasta que corran !setup.
+        print(f"⚠️ [{guild.name}] No existe el rol {ROL_ACTIVO_MES}; corre !setup. "
+              f"Activo del mes {mes} pendiente.")
+        return
+
+    # El bot solo puede dar/quitar roles que esten por debajo de su rol mas alto.
+    # Si no, no se guarda nada y se reintenta en el siguiente tick.
+    if guild.me.top_role <= rol:
+        print(f"⚠️ [{guild.name}] Mi rol más alto no está por encima de {ROL_ACTIVO_MES}. "
+              f"Activo del mes {mes} pendiente.")
+        if (guild.id, mes) not in avisos_jerarquia_activo_mes:
+            # Una sola vez por servidor y mes, para no llenar el canal de logs cada hora.
+            avisos_jerarquia_activo_mes.add((guild.id, mes))
+            await registrar_log(
+                guild,
+                f"⚠️ No puedo premiar el Activo del mes {mes}: mi rol más alto debe estar "
+                f"por encima de **{ROL_ACTIVO_MES}**. Reintento cada hora.",
+            )
+        return
+
+    # Candidatos del top, saltando excluidos y quienes ya no estan en el server
+    ganadores = []  # (miembro, puesto, xp)
+    for uid, xp in await top_xp_mensual(guild.id, mes, CANDIDATOS_ACTIVO_MES):
+        miembro = await obtener_miembro(guild, int(uid))
+        if miembro is None or es_excluido_activo(guild, miembro):
+            continue
+        ganadores.append((miembro, len(ganadores) + 1, xp))
+        if len(ganadores) == PUESTOS_ACTIVO_MES:
+            break
+    if not ganadores:
+        return
+
+    # Quitar el rol a los ganadores anteriores y darlo a los nuevos
+    nuevos_ids = {miembro.id for miembro, _p, _x in ganadores}
+    for anterior in list(rol.members):
+        if anterior.id in nuevos_ids:
+            continue
+        try:
+            await anterior.remove_roles(rol, reason=f"Activo del mes {mes}")
+        except discord.HTTPException as e:
+            print(f"⚠️ [{guild.name}] No pude quitar {ROL_ACTIVO_MES} a {anterior}: {e}")
+    for miembro, _puesto, _xp in ganadores:
+        if rol in miembro.roles:
+            continue
+        try:
+            await miembro.add_roles(rol, reason=f"Activo del mes {mes}")
+        except discord.HTTPException as e:
+            print(f"⚠️ [{guild.name}] No pude dar {ROL_ACTIVO_MES} a {miembro}: {e}")
+
+    await guardar_ganadores(
+        guild.id, mes, [(miembro.id, puesto, xp) for miembro, puesto, xp in ganadores]
+    )
+
+    canal = buscar_canal(guild, CANAL_NIVELES)
+    if canal is None:
+        print(f"⚠️ [{guild.name}] No encuentro {CANAL_NIVELES} para anunciar el Activo del mes.")
+        return
+    medallas = ["🥇", "🥈", "🥉"]
+    lineas = [
+        f"{medallas[puesto - 1]} {miembro.mention} — {xp} XP"
+        for miembro, puesto, xp in ganadores
+    ]
+    try:
+        await canal.send(
+            f"🏆 **Activo del mes — {mes}**\n" + "\n".join(lineas)
+            + f"\n\nGanan el rol **{ROL_ACTIVO_MES}** hasta el próximo mes. ¡Gracias por estar activos! 🎉",
+            allowed_mentions=discord.AllowedMentions(
+                users=[miembro for miembro, _p, _x in ganadores],
+                roles=False,
+                everyone=False,
+            ),
+        )
+    except discord.HTTPException as e:
+        print(f"⚠️ [{guild.name}] No pude anunciar el Activo del mes: {e}")
+
+
+@tasks.loop(hours=1)
+async def premiar_activo_mes():
+    """Cada hora revisa si el mes anterior (UTC) ya fue premiado en cada server."""
+    mes = mes_anterior_utc()
+    for guild in bot.guilds:
+        try:
+            await premiar_activo_mes_guild(guild, mes)
+        except Exception:
+            print(f"⚠️ Error premiando Activo del mes {mes} en {guild.name}:")
+            traceback.print_exc()
+
+
+@premiar_activo_mes.before_loop
+async def antes_de_premiar_activo_mes():
+    await bot.wait_until_ready()
+    # on_ready tambien las crea, pero no hay garantia de orden con la 1a vuelta.
+    try:
+        await crear_tablas()
+    except Exception:
+        print("⚠️ crear_tablas() fallo antes de Activo del mes:")
+        traceback.print_exc()
 
 
 # =====================================================================
@@ -479,25 +677,43 @@ async def on_message(message: discord.Message):
     clave = (gid, uid)
     ahora = time.time()
 
-    # Ganar XP con cooldown
-    if ahora - ultimo_xp.get(clave, 0) >= COOLDOWN_XP:
-        ultimo_xp[clave] = ahora
-        nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
-        xp_total = await add_user_xp(gid, uid, XP_POR_MENSAJE)
-        nivel_nuevo = nivel_desde_xp(xp_total)
+    # Ganar XP con cooldown. Los mensajes que empiezan con el prefijo (comandos)
+    # no dan XP, para que no se gane spameando comandos.
+    es_comando = message.content.startswith(bot.command_prefix)
+    if not es_comando and ahora - ultimo_xp.get(clave, 0) >= COOLDOWN_XP:
+        # Si algo falla (BD caida, etc.) se registra en consola, pero los
+        # comandos de abajo deben seguir funcionando SIEMPRE.
+        try:
+            ultimo_xp[clave] = ahora
+            nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
+            xp_total = await add_user_xp(gid, uid, XP_POR_MENSAJE)
+            nivel_nuevo = nivel_desde_xp(xp_total)
 
-        # Aviso de subida de nivel (en el canal de niveles si existe)
-        if nivel_nuevo > nivel_previo:
-            canal_nivel = buscar_canal(message.guild, CANAL_NIVELES) or message.channel
+            # Misma XP al acumulado del mes actual (UTC) para el Activo del mes.
+            # Aislado para que un fallo aqui no impida el aviso de nivel.
             try:
-                await canal_nivel.send(
-                    f"🎉 ¡{message.author.mention} subió al **nivel {nivel_nuevo}**!"
+                await add_xp_mensual(gid, uid, mes_utc(), XP_POR_MENSAJE)
+            except Exception:
+                print("⚠️ Error sumando XP mensual:")
+                traceback.print_exc()
+
+            # Aviso de subida de nivel (en el canal de niveles si existe)
+            if nivel_nuevo > nivel_previo:
+                canal_nivel = buscar_canal(message.guild, CANAL_NIVELES) or message.channel
+                try:
+                    await canal_nivel.send(
+                        AVISO_NIVEL.format(
+                            mencion=message.author.mention, nivel=nivel_nuevo
+                        )
+                    )
+                except discord.Forbidden:
+                    pass
+                await otorgar_recompensas(
+                    message.guild, message.author, nivel_previo, nivel_nuevo, canal_nivel
                 )
-            except discord.Forbidden:
-                pass
-            await otorgar_recompensas(
-                message.guild, message.author, nivel_previo, nivel_nuevo, canal_nivel
-            )
+        except Exception:
+            print(f"⚠️ Error procesando XP de {message.author} en {message.guild}:")
+            traceback.print_exc()
 
     # IMPORTANTE: dejar que los comandos sigan funcionando
     await bot.process_commands(message)
@@ -567,8 +783,10 @@ async def on_member_join(member: discord.Member):
     guild = member.guild
 
     # Rol automatico
-    rol = discord.utils.get(guild.roles, name=ROL_AUTOMATICO)
-    if rol is not None:
+    rol = guild.get_role(int(ROL_AUTOMATICO))
+    if rol is None:
+        print(f"⚠️ No existe el rol automático con ID {ROL_AUTOMATICO} en {guild.name}")
+    else:
         try:
             await member.add_roles(rol)
         except discord.Forbidden:
@@ -994,6 +1212,10 @@ async def anuncio_error(ctx, error):
 @bot.command(name="darnivel")
 @commands.has_permissions(administrator=True)
 async def darnivel(ctx, nivel: int, miembro: discord.Member = None):
+    # Solo toca la XP total (user_xp). NO debe tocar xp_mensual (Activo del mes).
+    if EITO_GUILD_ID and str(ctx.guild.id) == EITO_GUILD_ID:
+        await ctx.send("🔒 `!darnivel` está deshabilitado en este servidor (solo para pruebas).")
+        return
     miembro = miembro or ctx.author
     if nivel < 0:
         await ctx.send("❌ El nivel debe ser 0 o mayor.")
@@ -1025,6 +1247,215 @@ async def darnivel_error(ctx, error):
         await ctx.send("❌ El nivel debe ser un número entero.")
     elif isinstance(error, commands.MemberNotFound):
         await ctx.send("❌ No encuentro a ese miembro.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: IMPORTARNIVELES (reconstruye la XP de un mes desde los avisos)
+# =====================================================================
+@bot.command(name="importarniveles")
+@commands.has_permissions(administrator=True)
+@commands.guild_only()
+async def importarniveles(ctx, mes: str, confirmar: str = None):
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
+        await ctx.send("❌ El mes debe tener formato `YYYY-MM` (ej. `2026-09`).")
+        return
+    if mes > mes_utc():
+        await ctx.send("❌ Ese mes todavía no ha ocurrido.")
+        return
+    if confirmar is not None and confirmar.lower() != "confirmar":
+        await ctx.send("❌ Uso: `!importarniveles <YYYY-MM> [confirmar]`")
+        return
+
+    canal = buscar_canal(ctx.guild, CANAL_NIVELES)
+    if canal is None:
+        await ctx.send(f"⚠️ No encuentro el canal {CANAL_NIVELES}.")
+        return
+
+    await ctx.send(f"📥 Leyendo el historial de {canal.mention} de {mes} (puede tardar)...")
+    inicio, fin = limites_mes_utc(mes)
+    rangos = {}  # user_id -> [nivel_min, nivel_max]
+    leidos = avisos = 0
+    async for msg in canal.history(limit=None, after=inicio, before=fin, oldest_first=True):
+        leidos += 1
+        if msg.author.id != bot.user.id:
+            continue
+        encontrado = REGEX_AVISO_NIVEL.fullmatch(msg.content)
+        if encontrado is None:
+            continue
+        uid, nivel_aviso = encontrado.group(1), int(encontrado.group(2))
+        if nivel_aviso < 1:
+            continue
+        avisos += 1
+        rango = rangos.setdefault(uid, [nivel_aviso, nivel_aviso])
+        rango[0] = min(rango[0], nivel_aviso)
+        rango[1] = max(rango[1], nivel_aviso)
+
+    if not rangos:
+        await ctx.send(
+            f"ℹ️ No encontré avisos de subida de nivel de {mes} "
+            f"({leidos} mensajes leídos)."
+        )
+        return
+
+    # XP ganada ~ xp_acumulada(max) - xp_acumulada(min - 1)
+    xp_por_usuario = {
+        uid: xp_acumulada(mx) - xp_acumulada(mn - 1) for uid, (mn, mx) in rangos.items()
+    }
+
+    if confirmar is None:
+        ranking = sorted(xp_por_usuario.items(), key=lambda x: x[1], reverse=True)[:10]
+        lineas = []
+        for i, (uid, xp) in enumerate(ranking, 1):
+            mn, mx = rangos[uid]
+            miembro = ctx.guild.get_member(int(uid))
+            marcas = ""
+            if miembro is None:
+                marcas += " (salió)"
+            elif es_excluido_activo(ctx.guild, miembro):
+                marcas += " — excluido"
+            lineas.append(f"**{i}.** <@{uid}> — nivel {mn}→{mx} · ~{xp} XP{marcas}")
+        embed = discord.Embed(
+            title=f"📥 Vista previa de importación — {mes}",
+            description="\n".join(lineas),
+            colour=discord.Colour(0x3498DB),
+        )
+        embed.set_footer(
+            text=f"{len(rangos)} usuarios · {avisos} avisos · {leidos} mensajes leídos"
+        )
+        await ctx.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await ctx.send(
+            f"Si se ve bien, guarda con `!importarniveles {mes} confirmar`.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return
+
+    guardados = await importar_xp_mensual(ctx.guild.id, mes, xp_por_usuario)
+    await ctx.send(
+        f"✅ Importados **{guardados}** usuarios en la XP mensual de {mes} "
+        "(se conserva el mayor entre lo existente y lo importado)."
+    )
+
+
+@importarniveles.error
+async def importarniveles_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Uso: `!importarniveles <YYYY-MM> [confirmar]`")
+    elif isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: EXPORTARSERVER (TEMPORAL: vuelca roles y canales a JSON por DM)
+# =====================================================================
+def _permisos_activos(permisos):
+    """Nombres de los permisos en True de un objeto discord.Permissions."""
+    return [nombre for nombre, valor in permisos if valor]
+
+
+def _overrides_canal(canal):
+    """Overrides de permisos de un canal: por rol (nombre) o 'usuario:<id>'."""
+    resultado = []
+    for objetivo, ow in canal.overwrites.items():
+        permite, niega = ow.pair()
+        es_rol = isinstance(objetivo, discord.Role)
+        resultado.append({
+            "objetivo": objetivo.name if es_rol else f"usuario:{objetivo.id}",
+            "tipo": "rol" if es_rol else "usuario",
+            "id": objetivo.id,
+            "permite": _permisos_activos(permite),
+            "niega": _permisos_activos(niega),
+        })
+    return resultado
+
+
+def _datos_canal(canal):
+    """Datos exportables de un canal (sin mensajes)."""
+    datos = {
+        "nombre": canal.name,
+        "id": canal.id,
+        "tipo": canal.type.name,
+        "posicion": canal.position,
+        "overrides": _overrides_canal(canal),
+    }
+    if isinstance(canal, (discord.TextChannel, discord.ForumChannel)):
+        datos["tema"] = canal.topic
+        datos["nsfw"] = canal.nsfw
+        datos["slowmode"] = canal.slowmode_delay
+    elif isinstance(canal, (discord.VoiceChannel, discord.StageChannel)):
+        datos["limite_usuarios"] = canal.user_limit
+    return datos
+
+
+@bot.command(name="exportarserver")
+@commands.has_permissions(administrator=True)
+@commands.guild_only()
+async def exportarserver(ctx):
+    guild = ctx.guild
+    rol_bot = guild.me.top_role
+    datos = {
+        "servidor": {
+            "nombre": guild.name,
+            "id": guild.id,
+            "owner_id": guild.owner_id,
+            "miembros": guild.member_count,
+        },
+        "rol_mas_alto_del_bot": {
+            "nombre": rol_bot.name, "id": rol_bot.id, "posicion": rol_bot.position,
+        },
+        "roles": [
+            {
+                "nombre": r.name,
+                "id": r.id,
+                "posicion": r.position,
+                "color": str(r.colour),
+                "hoist": r.hoist,
+                "mencionable": r.mentionable,
+                "managed": r.managed,
+                "miembros": len(r.members),
+                "administrador": r.permissions.administrator,
+                "permisos": _permisos_activos(r.permissions),
+            }
+            for r in sorted(guild.roles, key=lambda r: r.position, reverse=True)
+        ],
+        "categorias": [
+            {
+                "nombre": cat.name,
+                "id": cat.id,
+                "tipo": cat.type.name,
+                "posicion": cat.position,
+                "overrides": _overrides_canal(cat),
+                "canales": [_datos_canal(c) for c in cat.channels],
+            }
+            for cat in guild.categories
+        ],
+        "canales_sin_categoria": [
+            _datos_canal(c) for c in guild.channels
+            if c.category is None and not isinstance(c, discord.CategoryChannel)
+        ],
+    }
+
+    contenido = json.dumps(datos, ensure_ascii=False, indent=2).encode("utf-8")
+    archivo = discord.File(io.BytesIO(contenido), filename=f"eito_export_{guild.id}.json")
+    try:
+        await ctx.author.send("📦 Exportación del servidor:", file=archivo)
+    except discord.Forbidden:
+        await ctx.send("❌ No pude enviarte el archivo por DM. Abre tus mensajes directos y repite el comando.")
+        return
+    await ctx.send("📬 Te mandé la exportación por mensaje directo.")
+
+
+@exportarserver.error
+async def exportarserver_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    elif isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
     else:
         await ctx.send(f"❌ Error: {error}")
 
@@ -1718,6 +2149,7 @@ async def ayuda(ctx):
                 "`!anuncio <texto>` — publica un anuncio\n"
                 "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)\n"
                 "`!setuprecompensas` — reconfigura los canales de nivel\n"
+                "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel\n"
                 "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW"
             ),
             inline=False,

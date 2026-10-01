@@ -7,7 +7,9 @@ entre despliegues y escalen mejor que un archivo plano.
 
 import os
 
-from sqlalchemy import BigInteger, DateTime, String, Text, UniqueConstraint, func, select
+from sqlalchemy import (
+    BigInteger, DateTime, Index, Integer, String, Text, UniqueConstraint, func, select,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -74,6 +76,41 @@ class ConfigServidor(Base):
     mensaje_cochipuerco_id: Mapped[str] = mapped_column(String(32), nullable=True)
 
 
+class XPMensual(Base):
+    """XP ganada por un usuario en un mes concreto (para el Activo del mes).
+
+    `mes` es "YYYY-MM" en UTC. Solo la escribe on_message (y la importacion
+    de niveles); los comandos admin de XP total no la tocan."""
+
+    __tablename__ = "xp_mensual"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "user_id", "mes", name="uq_xp_mensual_guild_user_mes"),
+        Index("ix_xp_mensual_guild_mes", "guild_id", "mes"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32))
+    user_id: Mapped[str] = mapped_column(String(32))
+    mes: Mapped[str] = mapped_column(String(7))
+    xp: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class GanadorMes(Base):
+    """Historial de ganadores del Activo del mes (evita premiar dos veces)."""
+
+    __tablename__ = "ganadores_mes"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "mes", "puesto", name="uq_ganadores_mes_guild_mes_puesto"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32), index=True)
+    mes: Mapped[str] = mapped_column(String(7))
+    user_id: Mapped[str] = mapped_column(String(32))
+    puesto: Mapped[int] = mapped_column(Integer)
+    xp: Mapped[int] = mapped_column(BigInteger)
+
+
 async def crear_tablas():
     """Crea las tablas en la base de datos si todavia no existen."""
     async with engine.begin() as conn:
@@ -122,6 +159,92 @@ async def get_all_xp(guild_id) -> dict:
             select(UserXP.user_id, UserXP.xp).where(UserXP.guild_id == str(guild_id))
         )
         return {user_id: xp for user_id, xp in resultado.all()}
+
+
+# =====================================================================
+#  HELPERS: ACTIVO DEL MES (XP mensual y ganadores)
+# =====================================================================
+async def add_xp_mensual(guild_id, user_id, mes, cantidad) -> int:
+    """Suma `cantidad` de XP al mes `mes` ("YYYY-MM") de un usuario (upsert).
+
+    Devuelve la XP mensual resultante."""
+    async with SessionLocal() as session:
+        stmt = pg_insert(XPMensual).values(
+            guild_id=str(guild_id), user_id=str(user_id), mes=mes, xp=cantidad
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["guild_id", "user_id", "mes"],
+            set_={"xp": XPMensual.__table__.c.xp + cantidad},
+        ).returning(XPMensual.xp)
+        resultado = await session.execute(stmt)
+        nueva_xp = resultado.scalar_one()
+        await session.commit()
+        return nueva_xp
+
+
+async def top_xp_mensual(guild_id, mes, limite) -> list:
+    """Devuelve [(user_id, xp), ...] del mes, de mayor a menor XP (ordenado en SQL).
+
+    Ante empate gana quien tiene el registro mas antiguo (id menor)."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(XPMensual.user_id, XPMensual.xp)
+            .where(XPMensual.guild_id == str(guild_id), XPMensual.mes == mes)
+            .order_by(XPMensual.xp.desc(), XPMensual.id)
+            .limit(limite)
+        )
+        return [(user_id, xp) for user_id, xp in resultado.all()]
+
+
+async def mes_ya_premiado(guild_id, mes) -> bool:
+    """True si ya hay ganadores guardados para ese mes en ese servidor."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(GanadorMes.id)
+            .where(GanadorMes.guild_id == str(guild_id), GanadorMes.mes == mes)
+            .limit(1)
+        )
+        return resultado.first() is not None
+
+
+async def guardar_ganadores(guild_id, mes, lista):
+    """Guarda los ganadores del mes. `lista` = [(user_id, puesto, xp), ...].
+
+    Si el puesto ya existia para ese mes no lo pisa (UNIQUE guild+mes+puesto)."""
+    if not lista:
+        return
+    async with SessionLocal() as session:
+        stmt = pg_insert(GanadorMes).values([
+            {"guild_id": str(guild_id), "mes": mes, "user_id": str(user_id),
+             "puesto": puesto, "xp": xp}
+            for user_id, puesto, xp in lista
+        ])
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["guild_id", "mes", "puesto"]
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def importar_xp_mensual(guild_id, mes, datos) -> int:
+    """Importa XP mensual aproximada: `datos` = {user_id: xp}.
+
+    Upsert con greatest(existente, importado): no pisa ni duplica la XP que
+    ya registro on_message. Devuelve cuantas filas se procesaron."""
+    if not datos:
+        return 0
+    async with SessionLocal() as session:
+        stmt = pg_insert(XPMensual).values([
+            {"guild_id": str(guild_id), "user_id": str(user_id), "mes": mes, "xp": xp}
+            for user_id, xp in datos.items()
+        ])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["guild_id", "user_id", "mes"],
+            set_={"xp": func.greatest(XPMensual.__table__.c.xp, stmt.excluded.xp)},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        return len(datos)
 
 
 # =====================================================================
