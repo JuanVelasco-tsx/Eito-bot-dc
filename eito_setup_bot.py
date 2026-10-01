@@ -1,5 +1,7 @@
 """EITO SERVER SETUP BOT - crea categorias, canales, roles y da funciones al server."""
 
+import io
+import json
 import os
 import re
 import time
@@ -1357,6 +1359,130 @@ async def importarniveles_error(ctx, error):
 
 
 # =====================================================================
+#  COMANDO: EXPORTARSERVER (auditoria: vuelca roles y canales a JSON por DM)
+# =====================================================================
+def es_dueno_o_developer(ctx):
+    """Check de !exportarserver (ademas de administrator): solo el dueño del
+    servidor o un miembro con el rol DEVELOPER (ROL_DEVELOPER_ID)."""
+    if ctx.guild is None:
+        return False
+    return (
+        ctx.author.id == ctx.guild.owner_id
+        or any(rol.id == ROL_DEVELOPER_ID for rol in ctx.author.roles)
+    )
+
+
+def _permisos_activos(permisos):
+    """Nombres de los permisos en True de un objeto discord.Permissions."""
+    return [nombre for nombre, valor in permisos if valor]
+
+
+def _overrides_canal(canal):
+    """Overrides de permisos de un canal: por rol (nombre) o 'usuario:<id>'."""
+    resultado = []
+    for objetivo, ow in canal.overwrites.items():
+        permite, niega = ow.pair()
+        es_rol = isinstance(objetivo, discord.Role)
+        resultado.append({
+            "objetivo": objetivo.name if es_rol else f"usuario:{objetivo.id}",
+            "tipo": "rol" if es_rol else "usuario",
+            "id": objetivo.id,
+            "permite": _permisos_activos(permite),
+            "niega": _permisos_activos(niega),
+        })
+    return resultado
+
+
+def _datos_canal(canal):
+    """Datos exportables de un canal (sin mensajes)."""
+    datos = {
+        "nombre": canal.name,
+        "id": canal.id,
+        "tipo": canal.type.name,
+        "posicion": canal.position,
+        "overrides": _overrides_canal(canal),
+    }
+    if isinstance(canal, (discord.TextChannel, discord.ForumChannel)):
+        datos["tema"] = canal.topic
+        datos["nsfw"] = canal.nsfw
+        datos["slowmode"] = canal.slowmode_delay
+    elif isinstance(canal, (discord.VoiceChannel, discord.StageChannel)):
+        datos["limite_usuarios"] = canal.user_limit
+    return datos
+
+
+@bot.command(name="exportarserver")
+@commands.guild_only()
+@commands.has_permissions(administrator=True)
+@commands.check(es_dueno_o_developer)
+async def exportarserver(ctx):
+    guild = ctx.guild
+    rol_bot = guild.me.top_role
+    datos = {
+        "servidor": {
+            "nombre": guild.name,
+            "id": guild.id,
+            "owner_id": guild.owner_id,
+            "miembros": guild.member_count,
+        },
+        "rol_mas_alto_del_bot": {
+            "nombre": rol_bot.name, "id": rol_bot.id, "posicion": rol_bot.position,
+        },
+        "roles": [
+            {
+                "nombre": r.name,
+                "id": r.id,
+                "posicion": r.position,
+                "color": str(r.colour),
+                "hoist": r.hoist,
+                "mencionable": r.mentionable,
+                "managed": r.managed,
+                "miembros": len(r.members),
+                "administrador": r.permissions.administrator,
+                "permisos": _permisos_activos(r.permissions),
+            }
+            for r in sorted(guild.roles, key=lambda r: r.position, reverse=True)
+        ],
+        "categorias": [
+            {
+                "nombre": cat.name,
+                "id": cat.id,
+                "tipo": cat.type.name,
+                "posicion": cat.position,
+                "overrides": _overrides_canal(cat),
+                "canales": [_datos_canal(c) for c in cat.channels],
+            }
+            for cat in guild.categories
+        ],
+        "canales_sin_categoria": [
+            _datos_canal(c) for c in guild.channels
+            if c.category is None and not isinstance(c, discord.CategoryChannel)
+        ],
+    }
+
+    contenido = json.dumps(datos, ensure_ascii=False, indent=2).encode("utf-8")
+    archivo = discord.File(io.BytesIO(contenido), filename=f"eito_export_{guild.id}.json")
+    try:
+        await ctx.author.send("📦 Exportación del servidor:", file=archivo)
+    except discord.Forbidden:
+        await ctx.send("❌ No pude enviarte el archivo por DM. Abre tus mensajes directos y repite el comando.")
+        return
+    await ctx.send("📬 Te mandé la exportación por mensaje directo.")
+
+
+@exportarserver.error
+async def exportarserver_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    elif isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ Solo el dueño del servidor o un DEVELOPER pueden usar este comando.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
 #  MODERACIÓN: BORRAR MENSAJES
 # =====================================================================
 @bot.command(name="borrar")
@@ -2046,6 +2172,7 @@ async def ayuda(ctx):
                 "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)\n"
                 "`!setuprecompensas` — reconfigura los canales de nivel\n"
                 "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel\n"
+                "`!exportarserver` — exporta roles y canales a JSON por DM (dueño o DEVELOPER)\n"
                 "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW"
             ),
             inline=False,
