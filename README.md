@@ -70,10 +70,10 @@ según tus permisos.
 - `!setup` — crea canales, categorías y roles
 - `!setupsteam` — reconfigura el canal de perfiles de Steam (solo-bot)
 - `!setuprecompensas` — reconfigura los canales de recompensa por nivel
-- `!reglas` — publica las reglas
-- `!info` (alias `!guia`) — publica la guía de inicio
-- `!panelroles` — panel de roles con botones
-- `!presentaciones` — plantilla de presentación
+- `!reglas` — publica las reglas; si ya existe el mensaje, lo **edita** en vez de duplicarlo
+- `!info` (alias `!guia`) — publica o edita la guía de inicio
+- `!panelroles` — publica o edita el panel de roles con botones (los botones siguen funcionando)
+- `!presentaciones` — publica o edita la plantilla de presentación
 - `!anuncio <texto>` — publica un anuncio (permiso *Gestionar servidor*: también lo pueden usar los admins y el staff con ese permiso)
 - `!panelcochipuerco` — publica el panel del rol +18 y configura el acceso NSFW
 - `!importarniveles <YYYY-MM> [confirmar]` — reconstruye la XP mensual de un mes
@@ -119,6 +119,7 @@ El bot guarda todo en **PostgreSQL** (`DATABASE_URL`), separado por servidor
 - `ganadores_mes` — historial de ganadores (evita premiar dos veces)
 - `user_warns` — avisos de moderación
 - `config_servidor` — configuración por servidor (panel +18)
+- `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles y presentaciones (para editarlos)
 
 ## 🔒 Seguridad
 

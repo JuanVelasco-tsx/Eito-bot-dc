@@ -19,12 +19,14 @@ from database import (
     crear_tablas,
     get_all_xp,
     get_mensaje_cochipuerco,
+    get_mensaje_fijo,
     get_user_xp,
     get_warns,
     guardar_ganadores,
     importar_xp_mensual,
     mes_ya_premiado,
     set_mensaje_cochipuerco,
+    set_mensaje_fijo,
     top_xp_mensual,
 )
 
@@ -1069,7 +1071,32 @@ async def panelcochipuerco_error(ctx, error):
 
 
 # =====================================================================
-#  COMANDO: REGLAS (publica las reglas en el canal de reglas)
+#  MENSAJES FIJOS (reglas, guia, panel de roles, presentaciones)
+# =====================================================================
+async def publicar_o_editar_fijo(guild, canal, clave, embed, view=None):
+    """Edita el mensaje fijo guardado para `clave`; si no hay o fue borrado,
+    publica uno nuevo en `canal` y guarda su ID. Devuelve (mensaje, editado).
+
+    Si ya hay un mensaje guardado se edita ese, aunque este en otro canal
+    distinto de `canal`. `view` (opcional) se aplica en ambos casos."""
+    extra = {"view": view} if view is not None else {}
+    guardado = await get_mensaje_fijo(guild.id, clave)
+    if guardado is not None:
+        canal_guardado = guild.get_channel(int(guardado[0]))
+        if canal_guardado is not None:
+            try:
+                mensaje = await canal_guardado.fetch_message(int(guardado[1]))
+                await mensaje.edit(embed=embed, **extra)
+                return mensaje, True
+            except discord.NotFound:
+                pass  # el mensaje fue borrado: se publica uno nuevo
+    mensaje = await canal.send(embed=embed, **extra)
+    await set_mensaje_fijo(guild.id, clave, canal.id, mensaje.id)
+    return mensaje, False
+
+
+# =====================================================================
+#  COMANDO: REGLAS (publica o edita las reglas en el canal de reglas)
 # =====================================================================
 @bot.command(name="reglas")
 @commands.has_permissions(administrator=True)
@@ -1083,8 +1110,9 @@ async def reglas(ctx):
         description=TEXTO_REGLAS,
         colour=discord.Colour(0x5865F2),
     )
-    await canal.send(embed=embed)
-    await ctx.send(f"✅ Reglas publicadas en {canal.mention}")
+    mensaje, editado = await publicar_o_editar_fijo(guild, canal, "reglas", embed)
+    accion = "editadas" if editado else "publicadas"
+    await ctx.send(f"✅ Reglas {accion} en {mensaje.channel.mention}")
 
 
 @reglas.error
@@ -1096,7 +1124,7 @@ async def reglas_error(ctx, error):
 
 
 # =====================================================================
-#  COMANDO: INFO / GUIA (publica la guia de inicio para los que llegan)
+#  COMANDO: INFO / GUIA (publica o edita la guia de inicio para los que llegan)
 # =====================================================================
 @bot.command(name="info", aliases=["guia"])
 @commands.has_permissions(administrator=True)
@@ -1109,9 +1137,9 @@ async def info(ctx):
         description=construir_guia(guild),
         colour=discord.Colour(0x2ECC71),
     )
-    await canal.send(embed=embed)
-    if canal != ctx.channel:
-        await ctx.send(f"✅ Guía publicada en {canal.mention}")
+    mensaje, editado = await publicar_o_editar_fijo(guild, canal, "guia", embed)
+    accion = "editada" if editado else "publicada"
+    await ctx.send(f"✅ Guía {accion} en {mensaje.channel.mention}")
 
 
 @info.error
@@ -1142,8 +1170,12 @@ async def panelroles(ctx):
         ),
         colour=discord.Colour(0x2ECC71),
     )
-    await canal.send(embed=embed, view=PanelRoles())
-    await ctx.send(f"✅ Panel de roles publicado en {canal.mention}")
+    # Al editar se vuelve a pasar PanelRoles(): los custom_id no cambian.
+    mensaje, editado = await publicar_o_editar_fijo(
+        guild, canal, "panel_roles", embed, view=PanelRoles()
+    )
+    accion = "editado" if editado else "publicado"
+    await ctx.send(f"✅ Panel de roles {accion} en {mensaje.channel.mention}")
 
 
 @panelroles.error
@@ -1171,8 +1203,9 @@ async def presentaciones(ctx):
         description=TEXTO_PRESENTACIONES,
         colour=discord.Colour(0xF1C40F),
     )
-    await canal.send(embed=embed)
-    await ctx.send(f"✅ Plantilla publicada en {canal.mention}")
+    mensaje, editado = await publicar_o_editar_fijo(guild, canal, "presentaciones", embed)
+    accion = "editada" if editado else "publicada"
+    await ctx.send(f"✅ Plantilla {accion} en {mensaje.channel.mention}")
 
 
 @presentaciones.error
@@ -1703,15 +1736,18 @@ async def warn_error(ctx, error):
 #  MODERACIÓN: WARNS (ver avisos de un miembro)
 # =====================================================================
 MAX_AVISOS_EMBED = 20  # un embed admite 25 fields como maximo
+
+
+def puede_ver_avisos_ajenos(perms):
+    """True si `perms` (guild_permissions) permite ver los avisos de otros."""
+    return perms is not None and (perms.kick_members or perms.moderate_members)
 @bot.command(name="warns")
 async def warns(ctx, miembro: discord.Member = None):
     miembro = miembro or ctx.author
     # Cualquiera ve sus propios avisos; los de otros solo moderadores.
-    if miembro != ctx.author:
-        perms = ctx.author.guild_permissions
-        if not (perms.kick_members or perms.moderate_members):
-            await ctx.send("❌ Solo los moderadores pueden ver los avisos de otros.")
-            return
+    if miembro != ctx.author and not puede_ver_avisos_ajenos(ctx.author.guild_permissions):
+        await ctx.send("❌ Solo los moderadores pueden ver los avisos de otros.")
+        return
     gid = str(ctx.guild.id)
     uid = str(miembro.id)
     lista = await get_warns(gid, uid)
@@ -2121,93 +2157,95 @@ async def serverinfo(ctx):
     await ctx.send(embed=embed)
 
 
+# Secciones de !ayuda: (titulo del field, [(comando, texto, condicion_extra)]).
+# Cada linea solo se muestra si quien pide la ayuda puede usar el comando
+# (await comando.can_run(ctx)); un field sin lineas visibles no se muestra.
+# condicion_extra(ctx) cubre lo que el propio comando no restringe con un check.
+AYUDA_SECCIONES = [
+    ("🎮 Comunidad", [
+        ("ping", "`!ping` — comprueba que el bot responde", None),
+        ("miembros", "`!miembros` — cuántos miembros hay", None),
+        ("avatar", "`!avatar [@usuario]` — muestra un avatar en grande", None),
+        ("serverinfo", "`!serverinfo` — info del servidor", None),
+        ("nivel", "`!nivel [@usuario]` — muestra tu nivel y XP", None),
+        ("top", "`!top` — ranking de niveles del servidor", None),
+        ("warns", "`!warns` — muestra tus avisos", None),
+        ("ayuda", "`!ayuda` — muestra esta lista", None),
+    ]),
+    ("📊 Utilidad", [
+        ("encuesta", "`!encuesta <pregunta>` — crea una encuesta 👍👎", None),
+        ("sugerencia", "`!sugerencia <texto>` — envía una sugerencia con votación", None),
+        ("steam", "`!steam <enlace o SteamID>` — publica tu perfil de Steam", None),
+        ("jugar", "`!jugar [mensaje]` — avisa a los Leftsito para buscar partida", None),
+    ]),
+    ("🛡️ Moderación", [
+        ("borrar", "`!borrar <n>` — borra los últimos N mensajes (1–100)", None),
+        ("kick", "`!kick @usuario [razón]` — expulsa a un miembro", None),
+        ("ban", "`!ban @usuario [razón]` — banea a un miembro", None),
+        ("mute", "`!mute @usuario <duración> [razón]` — silencia (ej. 10m, 2h)", None),
+        ("unmute", "`!unmute @usuario` — quita el silencio", None),
+        ("warn", "`!warn @usuario [razón]` — avisa a un miembro", None),
+        # !warns no tiene check propio (cualquiera ve los suyos): esta linea es
+        # solo para quien puede ver los avisos de otros.
+        ("warns", "`!warns [@usuario]` — muestra los avisos",
+         lambda ctx: puede_ver_avisos_ajenos(getattr(ctx.author, "guild_permissions", None))),
+    ]),
+    ("📝 Publicar", [
+        ("reglas", "`!reglas` — publica o actualiza las reglas", None),
+        ("info", "`!info` — publica o actualiza la guía de inicio", None),
+        ("panelroles", "`!panelroles` — publica o actualiza el panel de roles con botones", None),
+        ("presentaciones", "`!presentaciones` — publica o actualiza la plantilla de presentación", None),
+        ("anuncio", "`!anuncio <texto>` — publica un anuncio", None),
+        ("panelcochipuerco", "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW", None),
+    ]),
+    ("⚙️ Configurar y datos", [
+        ("setup", "`!setup` — crea canales, categorías y roles", None),
+        ("setupsteam", "`!setupsteam` — reconfigura el canal de perfiles", None),
+        ("setuprecompensas", "`!setuprecompensas` — reconfigura los canales de nivel", None),
+        ("importarniveles", "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel", None),
+        ("exportarserver", "`!exportarserver` — exporta roles y canales a JSON por DM (dueño o DEVELOPER)", None),
+        ("darnivel", "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (solo en server de pruebas)", None),
+    ]),
+]
+
+
+async def comando_visible(ctx, nombre, condicion=None):
+    """True si quien pide la ayuda puede usar el comando `nombre`.
+
+    Usa can_run (checks del propio comando) en vez de duplicar los permisos."""
+    comando = bot.get_command(nombre)
+    if comando is None:
+        return False
+    try:
+        if condicion is not None and not condicion(ctx):
+            return False
+        return await comando.can_run(ctx)
+    except commands.CommandError:
+        return False
+
+
 # =====================================================================
-#  COMANDO: AYUDA (muestra la lista de comandos)
+#  COMANDO: AYUDA (muestra solo los comandos que puedes usar)
 # =====================================================================
 @bot.command(name="ayuda")
 async def ayuda(ctx):
-    perms = ctx.author.guild_permissions
-    es_admin = perms.administrator
-    es_mod = perms.kick_members or perms.ban_members or perms.moderate_members
-
     embed = discord.Embed(
         title="📖 Comandos de EITO",
         description="Todos los comandos usan el prefijo `!`",
         colour=discord.Colour(0x5865F2),
     )
+    for titulo, entradas in AYUDA_SECCIONES:
+        lineas = [
+            texto for nombre, texto, condicion in entradas
+            if await comando_visible(ctx, nombre, condicion)
+        ]
+        if lineas:
+            embed.add_field(name=titulo, value="\n".join(lineas), inline=False)
 
-    # Seccion visible para TODOS
-    embed.add_field(
-        name="🎮 Comunidad",
-        value=(
-            "`!ping` — comprueba que el bot responde\n"
-            "`!miembros` — cuántos miembros hay\n"
-            "`!avatar [@usuario]` — muestra un avatar en grande\n"
-            "`!serverinfo` — info del servidor\n"
-            "`!nivel [@usuario]` — muestra tu nivel y XP\n"
-            "`!top` — ranking de niveles del servidor\n"
-            "`!warns` — muestra tus avisos\n"
-            "`!ayuda` — muestra esta lista"
-        ),
-        inline=False,
+    embed.set_footer(
+        text="Ganas XP al escribir (los comandos no cuentan) · "
+             "El top 3 del mes gana 🔥 Activo del mes"
     )
-    embed.add_field(
-        name="📊 Utilidad",
-        value=(
-            "`!encuesta <pregunta>` — crea una encuesta 👍👎\n"
-            "`!sugerencia <texto>` — envía una sugerencia con votación\n"
-            "`!steam <enlace o SteamID>` — publica tu perfil de Steam\n"
-            "`!jugar [mensaje]` — avisa a los Leftsito para buscar partida"
-        ),
-        inline=False,
-    )
-
-    # Solo para moderadores
-    if es_mod or es_admin:
-        embed.add_field(
-            name="🛡️ Moderación",
-            value=(
-                "`!borrar <n>` — borra los últimos N mensajes (1–100)\n"
-                "`!kick @usuario [razón]` — expulsa a un miembro\n"
-                "`!ban @usuario [razón]` — banea a un miembro\n"
-                "`!mute @usuario <duración> [razón]` — silencia (ej. 10m, 2h)\n"
-                "`!unmute @usuario` — quita el silencio\n"
-                "`!warn @usuario [razón]` — avisa a un miembro\n"
-                "`!warns [@usuario]` — muestra los avisos"
-            ),
-            inline=False,
-        )
-
-    # Staff con Gestionar servidor que no es admin (los admins ya lo ven abajo)
-    if perms.manage_guild and not es_admin:
-        embed.add_field(
-            name="📣 Staff",
-            value="`!anuncio <texto>` — publica un anuncio",
-            inline=False,
-        )
-
-    # Solo para admins
-    if es_admin:
-        embed.add_field(
-            name="🔧 Administración",
-            value=(
-                "`!setup` — crea canales, categorías y roles\n"
-                "`!setupsteam` — reconfigura el canal de perfiles\n"
-                "`!reglas` — publica las reglas\n"
-                "`!info` — publica la guía de inicio\n"
-                "`!panelroles` — publica el panel de roles con botones\n"
-                "`!presentaciones` — publica la plantilla de presentación\n"
-                "`!anuncio <texto>` — publica un anuncio\n"
-                "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (testing)\n"
-                "`!setuprecompensas` — reconfigura los canales de nivel\n"
-                "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel\n"
-                "`!exportarserver` — exporta roles y canales a JSON por DM (dueño o DEVELOPER)\n"
-                "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW"
-            ),
-            inline=False,
-        )
-
-    embed.set_footer(text="Ganas XP al escribir. Además: bienvenida y rol automático al entrar 🎉")
     await ctx.send(embed=embed)
 
 

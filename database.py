@@ -111,6 +111,22 @@ class GanadorMes(Base):
     xp: Mapped[int] = mapped_column(BigInteger)
 
 
+class MensajeFijo(Base):
+    """Mensaje fijo del bot (reglas, guia, panel de roles...) para editarlo en
+    vez de publicar uno nuevo cada vez. `clave` identifica el mensaje."""
+
+    __tablename__ = "mensajes_fijos"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "clave", name="uq_mensajes_fijos_guild_clave"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32))
+    clave: Mapped[str] = mapped_column(String(50))
+    canal_id: Mapped[str] = mapped_column(String(32))
+    mensaje_id: Mapped[str] = mapped_column(String(32))
+
+
 async def crear_tablas():
     """Crea las tablas en la base de datos si todavia no existen."""
     async with engine.begin() as conn:
@@ -324,3 +340,33 @@ async def get_mensaje_cochipuerco(guild_id: str) -> str | None:
             )
         )
         return resultado.scalar_one_or_none()
+
+
+# =====================================================================
+#  HELPERS: MENSAJES FIJOS
+# =====================================================================
+async def get_mensaje_fijo(guild_id, clave):
+    """Devuelve (canal_id, mensaje_id) del mensaje fijo `clave`, o None."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(MensajeFijo.canal_id, MensajeFijo.mensaje_id).where(
+                MensajeFijo.guild_id == str(guild_id), MensajeFijo.clave == clave
+            )
+        )
+        fila = resultado.first()
+        return (fila[0], fila[1]) if fila else None
+
+
+async def set_mensaje_fijo(guild_id, clave, canal_id, mensaje_id):
+    """Guarda (o reemplaza) el canal y el mensaje de la clave `clave` (upsert)."""
+    async with SessionLocal() as session:
+        stmt = pg_insert(MensajeFijo).values(
+            guild_id=str(guild_id), clave=clave,
+            canal_id=str(canal_id), mensaje_id=str(mensaje_id),
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["guild_id", "clave"],
+            set_={"canal_id": str(canal_id), "mensaje_id": str(mensaje_id)},
+        )
+        await session.execute(stmt)
+        await session.commit()
