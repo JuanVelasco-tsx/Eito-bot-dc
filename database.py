@@ -127,6 +127,23 @@ class MensajeFijo(Base):
     mensaje_id: Mapped[str] = mapped_column(String(32))
 
 
+class Fundador(Base):
+    """Miembro fundador (de los primeros por fecha de entrada) de un servidor.
+
+    Se guarda para poder devolverle el rol si sale y vuelve a entrar."""
+
+    __tablename__ = "fundadores"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "user_id", name="uq_fundadores_guild_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32))
+    user_id: Mapped[str] = mapped_column(String(32))
+    puesto: Mapped[int] = mapped_column(Integer)
+    joined_at: Mapped["object"] = mapped_column(DateTime(timezone=True))
+
+
 async def crear_tablas():
     """Crea las tablas en la base de datos si todavia no existen."""
     async with engine.begin() as conn:
@@ -386,3 +403,43 @@ async def set_mensaje_fijo(guild_id, clave, canal_id, mensaje_id):
         )
         await session.execute(stmt)
         await session.commit()
+
+
+# =====================================================================
+#  HELPERS: FUNDADORES
+# =====================================================================
+async def hay_fundadores(guild_id) -> bool:
+    """True si ya hay fundadores guardados para ese servidor."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(Fundador.id).where(Fundador.guild_id == str(guild_id)).limit(1)
+        )
+        return resultado.first() is not None
+
+
+async def guardar_fundadores(guild_id, lista):
+    """Guarda los fundadores. `lista` = [(user_id, puesto, joined_at), ...].
+
+    Si un usuario ya estaba guardado no se duplica (UNIQUE guild+user)."""
+    if not lista:
+        return
+    async with SessionLocal() as session:
+        stmt = pg_insert(Fundador).values([
+            {"guild_id": str(guild_id), "user_id": str(user_id),
+             "puesto": puesto, "joined_at": joined_at}
+            for user_id, puesto, joined_at in lista
+        ])
+        stmt = stmt.on_conflict_do_nothing(index_elements=["guild_id", "user_id"])
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def get_fundador(guild_id, user_id):
+    """Devuelve el puesto del fundador (1, 2, ...) o None si no es fundador."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(Fundador.puesto).where(
+                Fundador.guild_id == str(guild_id), Fundador.user_id == str(user_id)
+            )
+        )
+        return resultado.scalar_one_or_none()

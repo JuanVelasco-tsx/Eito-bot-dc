@@ -23,6 +23,13 @@ Quedan excluidos los bots, el dueño del servidor y el rol DEVELOPER; admins y
 moderadores sí participan. `!importarniveles` reconstruye un mes pasado a partir
 de los avisos de subida de nivel.
 
+### 🌱 Fundador
+
+Los 100 miembros más antiguos del servidor (por fecha de entrada, sin bots) reciben
+el rol **🌱 Fundador**. Lo asigna una sola vez el dueño o un DEVELOPER con
+`!fundadores` (primero una vista previa, luego `!fundadores confirmar`). La lista se
+guarda en la base de datos: si un fundador sale y vuelve a entrar, recupera el rol.
+
 ## 🚀 Instalación
 
 1. Instala Python 3.12 y las dependencias:
@@ -84,6 +91,9 @@ según tus permisos.
   (0 a 10 000 000). Solo el dueño del servidor o el rol DEVELOPER, también en EITO.
   Solo tocan `user_xp`: no modifican el Activo del mes ni dan o quitan roles de
   recompensa. Responden con el antes y el después y quedan en el canal de registros.
+- `!fundadores [confirmar]` — asigna el rol Fundador a los 100 miembros más antiguos.
+  Solo el dueño o un DEVELOPER. Sin `confirmar` muestra una vista previa; con
+  `confirmar` guarda la lista y da el rol. Si ya se asignó, rechaza el comando.
 - `!darnivel <nivel> [@usuario]` — asigna un nivel exacto. **Solo para pruebas**:
   se bloquea en el servidor definido en `EITO_GUILD_ID` (EITO).
 
@@ -121,6 +131,7 @@ El bot guarda todo en **PostgreSQL** (`DATABASE_URL`), separado por servidor
 - `user_xp` — XP total de cada usuario
 - `xp_mensual` — XP por usuario y mes (Activo del mes)
 - `ganadores_mes` — historial de ganadores (evita premiar dos veces)
+- `fundadores` — los 100 primeros miembros y su puesto (para devolverles el rol)
 - `user_warns` — avisos de moderación
 - `config_servidor` — configuración por servidor (panel +18)
 - `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles y presentaciones (para editarlos)

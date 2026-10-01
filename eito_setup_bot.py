@@ -18,11 +18,14 @@ from database import (
     add_xp_mensual,
     crear_tablas,
     get_all_xp,
+    get_fundador,
     get_mensaje_cochipuerco,
     get_mensaje_fijo,
     get_user_xp,
     get_warns,
+    guardar_fundadores,
     guardar_ganadores,
+    hay_fundadores,
     importar_xp_mensual,
     mes_ya_premiado,
     set_mensaje_cochipuerco,
@@ -105,6 +108,14 @@ PUESTOS_ACTIVO_MES = 3
 # Cuantos candidatos del top se revisan por si varios estan excluidos o ya salieron.
 CANDIDATOS_ACTIVO_MES = 50
 
+# --- FUNDADORES (los primeros miembros por fecha de entrada) ---
+# El nombre solo lo usa !setup para crear el rol en servers nuevos; el bot lo
+# busca por ID. TODO: pon aqui el ID real del rol (mientras sea 0, !fundadores
+# rechaza el comando y on_member_join no asigna nada).
+ROL_FUNDADOR = "🌱 Fundador"
+ROL_FUNDADOR_ID = 0
+MAX_FUNDADORES = 100
+
 # --- ROLES QUE SE PUEDEN AUTOASIGNAR CON BOTONES ---
 # (etiqueta del boton, nombre exacto del rol, emoji)
 ROLES_PLATAFORMA = [
@@ -148,6 +159,7 @@ ROLES = [
     ("Leftsito", 0xE74C3C, False, True),
     ("🔔 Mod Loader", 0x9184D9, False, True),
     (ROL_ACTIVO_MES, 0xFF5722, True, False),
+    (ROL_FUNDADOR, 0x57F287, False, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
     ("PlayStation", 0x3498DB, False, True),
@@ -876,6 +888,16 @@ async def on_member_join(member: discord.Member):
             await member.add_roles(rol)
         except discord.Forbidden:
             print(f"⚠️ Sin permisos para dar el rol {ROL_AUTOMATICO}")
+
+    # Fundador: si ya estaba en la lista, recupera su rol. Cualquier fallo
+    # (BD, permisos) se registra y no impide la bienvenida.
+    try:
+        if await get_fundador(guild.id, member.id) is not None:
+            rol_fundador = guild.get_role(ROL_FUNDADOR_ID)
+            if rol_fundador is not None:
+                await member.add_roles(rol_fundador, reason="Fundador que vuelve")
+    except Exception as e:
+        print(f"⚠️ No pude devolver el rol Fundador a {member} en {guild.name}: {e}")
 
     # Mensaje de bienvenida (embed con foto y contador de miembros)
     canal = discord.utils.get(guild.text_channels, name=CANAL_BIENVENIDA)
@@ -1655,6 +1677,110 @@ async def resetxp_error(ctx, error):
 
 
 # =====================================================================
+#  COMANDO: FUNDADORES (rol Fundador para los primeros miembros; dueño o DEVELOPER)
+# =====================================================================
+def fecha_corta(fecha):
+    """dd/mm/aaaa, o '?' si no hay fecha."""
+    return fecha.strftime("%d/%m/%Y") if fecha else "?"
+
+
+@bot.command(name="fundadores")
+@commands.guild_only()
+@commands.check(es_dueno_o_developer)
+async def fundadores(ctx, confirmar: str = None):
+    guild = ctx.guild
+    if confirmar is not None and confirmar.lower() != "confirmar":
+        await ctx.send("❌ Uso: `!fundadores [confirmar]`")
+        return
+    if await hay_fundadores(guild.id):
+        await ctx.send("❌ Los fundadores ya fueron asignados.")
+        return
+    rol = guild.get_role(ROL_FUNDADOR_ID)
+    if rol is None:
+        await ctx.send(
+            f"⚠️ No existe el rol Fundador con ID {ROL_FUNDADOR_ID}; revisa ROL_FUNDADOR_ID."
+        )
+        return
+
+    # Los MAX_FUNDADORES miembros no-bot mas antiguos (desempate por ID)
+    if not guild.chunked:
+        await guild.chunk()
+    candidatos = sorted(
+        (m for m in guild.members if not m.bot and m.joined_at is not None),
+        key=lambda m: (m.joined_at, m.id),
+    )
+    elegidos = candidatos[:MAX_FUNDADORES]
+    if not elegidos:
+        await ctx.send("❌ No encuentro miembros para asignar.")
+        return
+
+    if confirmar is None:
+        # Vista previa: no escribe nada
+        def linea(puesto, m):
+            return f"**#{puesto}** {m.mention} — {fecha_corta(m.joined_at)}"
+        if len(elegidos) <= 15:
+            partes = ["\n".join(linea(i, m) for i, m in enumerate(elegidos, 1))]
+        else:
+            primeros = "\n".join(linea(i, m) for i, m in enumerate(elegidos[:10], 1))
+            ultimos = "\n".join(
+                linea(i, m) for i, m in enumerate(elegidos[-5:], len(elegidos) - 4)
+            )
+            partes = [f"**Primeros 10**\n{primeros}", f"**Últimos 5**\n{ultimos}"]
+        embed = discord.Embed(
+            title="🌱 Vista previa de fundadores",
+            description=(
+                f"👥 Miembros (sin bots): **{len(candidatos)}**\n"
+                f"🌱 Fundadores a asignar: **{len(elegidos)}**\n"
+                f"📅 Fecha de corte (#{len(elegidos)}): **{fecha_corta(elegidos[-1].joined_at)}**\n\n"
+                + "\n\n".join(partes)
+            ),
+            colour=discord.Colour(0x57F287),
+        )
+        embed.set_footer(text="Para asignar: !fundadores confirmar")
+        await ctx.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        return
+
+    # Antes de guardar nada: el rol debe poder asignarse (si no, quedaria una
+    # lista guardada sin roles y el comando ya no se podria repetir).
+    if guild.me.top_role <= rol:
+        await ctx.send(
+            f"❌ Mi rol más alto debe estar por encima de **{rol.name}** para poder asignarlo."
+        )
+        return
+
+    await guardar_fundadores(
+        guild.id, [(m.id, puesto, m.joined_at) for puesto, m in enumerate(elegidos, 1)]
+    )
+    dados = ya_tenian = fallos = 0
+    for m in elegidos:
+        if rol in m.roles:
+            ya_tenian += 1
+            continue
+        try:
+            await m.add_roles(rol, reason="Fundador")
+            dados += 1
+        except discord.HTTPException as e:
+            fallos += 1
+            print(f"⚠️ No pude dar el rol Fundador a {m} en {guild.name}: {e}")
+    texto = f"✅ Fundadores guardados: **{len(elegidos)}**. Roles dados: **{dados}**."
+    if ya_tenian:
+        texto += f" Ya lo tenían: {ya_tenian}."
+    if fallos:
+        texto += f" ⚠️ Fallaron **{fallos}** asignaciones (revisa la consola)."
+    await ctx.send(texto)
+
+
+@fundadores.error
+async def fundadores_error(ctx, error):
+    if isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ Solo el dueño del servidor o un DEVELOPER pueden usar este comando.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
 #  MODERACIÓN: BORRAR MENSAJES
 # =====================================================================
 @bot.command(name="borrar")
@@ -2346,6 +2472,7 @@ AYUDA_SECCIONES = [
         ("darnivel", "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (solo en server de pruebas)", None),
         ("setxp", "`!setxp @usuario <xp>` — fija la XP total de alguien (dueño o DEVELOPER)", None),
         ("resetxp", "`!resetxp @usuario` — pone en 0 la XP total de alguien (dueño o DEVELOPER)", None),
+        ("fundadores", "`!fundadores [confirmar]` — da el rol Fundador a los 100 primeros miembros (dueño o DEVELOPER)", None),
     ]),
 ]
 
