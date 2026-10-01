@@ -161,16 +161,55 @@ ROLES = [
     *[(nombre_rol, color, False, False) for _n, nombre_rol, color, _c in NIVEL_RECOMPENSAS],
 ]
 
-# --- TEXTO DE LAS REGLAS ---
-TEXTO_REGLAS = (
-    "📜 **REGLAS DE EITO** 📜\n\n"
-    "1️⃣ Respeta a todos los miembros. Nada de insultos, racismo ni acoso.\n"
-    "2️⃣ Prohibido el spam, la publicidad sin permiso y los enlaces sospechosos.\n"
-    "3️⃣ Usa cada canal para su tema. Lee los nombres antes de escribir.\n"
-    "4️⃣ Nada de contenido NSFW ni ilegal.\n"
-    "5️⃣ Respeta las decisiones del staff.\n\n"
-    "Al estar aquí aceptas estas normas. ¡Disfruta y a jugar! 🎮"
-)
+# --- CANALES SOLO MENCIONADOS EN LOS TEXTOS (no los crea !setup) ---
+CANAL_PREGUNTAS = "❔・preguntas"
+CANAL_MEMES = "🥵・memes"
+CANAL_SPRAYS = "🗞️・como-poner-sprays"
+
+
+def _sin_selector_emoji(nombre):
+    """Quita el selector de variacion de emoji (U+FE0F), que Discord a veces
+    añade o quita al guardar un nombre de canal."""
+    return nombre.replace("\ufe0f", "")
+
+
+def mencion_canal(guild, nombre):
+    """Mencion clicable del canal de texto `nombre`, o '#nombre' si no existe.
+
+    Se resuelve en tiempo real y tolera el selector de variacion de emoji."""
+    objetivo = _sin_selector_emoji(nombre)
+    canal = next(
+        (c for c in guild.text_channels if _sin_selector_emoji(c.name) == objetivo),
+        None,
+    )
+    return canal.mention if canal else f"#{nombre}"
+
+
+# --- TEXTO DE LAS REGLAS (con menciones a canales en tiempo real) ---
+def construir_reglas(guild):
+    """Devuelve el texto de las reglas con los canales del server mencionados."""
+    preguntas = mencion_canal(guild, CANAL_PREGUNTAS)
+    memes = mencion_canal(guild, CANAL_MEMES)
+    return (
+        "📜 **REGLAS DE EITO** 📜\n\n"
+        "1️⃣ **Respeto ante todo.** Nada de insultos, racismo, acoso ni discriminación.\n"
+        "2️⃣ **Sin spam ni publicidad.** Nada de enlaces sospechosos ni invitaciones "
+        "a otros servers sin permiso.\n"
+        f"3️⃣ **Cada cosa en su canal.** Dudas en {preguntas}, memes en {memes}, "
+        "partidas con `!jugar`.\n"
+        "4️⃣ **No farmees XP.** Mandar mensajes solo para subir de nivel está "
+        "prohibido y descalifica de 🔥 Activo del mes.\n"
+        "5️⃣ **Nada de pings masivos** ni abuso de `!jugar`.\n"
+        "6️⃣ **Contenido +18 solo en 🔞 NSFW** y solo para mayores de edad. "
+        "Fuera de ahí está prohibido.\n"
+        "7️⃣ **Nada de cheats** en partidas de la comunidad ni contenido ilegal.\n"
+        "8️⃣ **Respeta al staff.** Si no estás de acuerdo con una sanción, habla "
+        "con un admin por privado.\n\n"
+        "⚖️ **Sanciones:** aviso → silencio → expulsión → baneo, según la gravedad. "
+        "Las faltas graves pueden ir directo al baneo.\n\n"
+        "Al estar aquí aceptas estas normas. ¡A matar zombies! 🧟"
+    )
+
 
 # --- TEXTO DE LA PLANTILLA DE PRESENTACIONES ---
 TEXTO_PRESENTACIONES = (
@@ -181,9 +220,19 @@ TEXTO_PRESENTACIONES = (
     "🎮 Juegos favoritos:\n"
     "🕹️ Plataforma:\n"
     "🌍 Región:\n"
+    "🎮 Steam (opcional):\n"
     "💬 Algo sobre ti:\n"
     "```\n"
     "¡Así te conocemos mejor! 🎉"
+)
+
+# --- TEXTO DEL PANEL DE ROLES (los nombres coinciden con los botones de PanelRoles) ---
+TEXTO_PANEL_ROLES = (
+    "Pulsa un botón para darte o quitarte un rol.\n\n"
+    "**🎮 Plataforma:** en qué juegas.\n"
+    "**🌍 Región:** desde dónde te conectas.\n"
+    "**🔔 Avisos de partida:** te mencionan cuando alguien busca gente con `!jugar`.\n"
+    "**🛠️ Avisos Mod Loader:** te avisamos cuando sale una versión nueva."
 )
 
 # --- GUIA DE INICIO (respuestas a las dudas mas comunes) ---
@@ -191,40 +240,47 @@ TEXTO_PRESENTACIONES = (
 def construir_guia(guild):
     """Devuelve el texto de la guia con los canales del server mencionados."""
     def canal_txt(nombre):
-        c = discord.utils.get(guild.text_channels, name=nombre)
-        return c.mention if c else f"#{nombre}"
-
-    def canal_voz(nombre):
-        c = discord.utils.get(guild.voice_channels, name=nombre)
-        return c.mention if c else nombre
+        return mencion_canal(guild, nombre)
 
     return (
         "👋 **¡Bienvenido/a a EITO! Empieza por aquí** 👇\n\n"
 
-        "**🕹️ ¿Quieres jugar Left 4 Dead con alguien?**\n"
-        f"No preguntes en {canal_txt('💬・general')} 😅. Escribe `!jugar` en "
-        f"{canal_txt('🤖・comandos')} y avisará a todos los que quieren jugar.\n"
-        f"Activa el rol **🔔 Avisos de partida** en {canal_txt('🎭・roles')} "
-        "para enterarte cuando alguien busque gente.\n\n"
+        "**🕹️ ¿Buscas partida?**\n"
+        f"Escribe `!jugar` en {canal_txt('🤖・comandos')} y avisará a todos los que "
+        f"tienen 🔔 Avisos de partida (actívalo en {canal_txt(CANAL_ROLES)}). "
+        "Las salas de voz para Versus y Campaña están en 🔊 PA JUGARR.\n\n"
 
-        "**📦 ¿Buscas packs, scripts o addons?**\n"
-        f"Están en la sección **🧟 LEFT 4 DEAD**: {canal_txt('📦・packs')}, "
-        f"{canal_txt('⚙️・autoexec')}, {canal_txt('📜・scripts')} y "
-        f"{canal_txt('🗂️・colecciones')}.\n\n"
+        "**🎭 Tus roles**\n"
+        f"En {canal_txt(CANAL_ROLES)} eliges plataforma, región, avisos de partida "
+        "y avisos del Mod Loader.\n\n"
 
-        "**🎭 ¿Cómo consigo mis roles?**\n"
-        f"Ve a {canal_txt('🎭・roles')} y pulsa los botones de tu plataforma "
-        "(PC, XBOX...) y región.\n\n"
+        "**📦 Contenido de L4D2**\n"
+        f"{canal_txt('📦・packs')}, {canal_txt('⚙️・autoexec')}, "
+        f"{canal_txt('📜・scripts')}, {canal_txt('🗂️・colecciones')} y "
+        f"{canal_txt(CANAL_SPRAYS)}.\n\n"
 
-        "**🎮 ¿Cómo comparto mi Steam?**\n"
+        "**🔧 Mod Loader**\n"
+        f"Descargas y novedades en {canal_txt(CANAL_MODLOADER)}. Activa 🔔 Mod Loader "
+        f"en {canal_txt(CANAL_ROLES)} para enterarte de cada versión nueva.\n\n"
+
+        "**📈 Niveles**\n"
+        "Ganas XP al escribir (los comandos no cuentan). Mira tu progreso con "
+        "`!nivel` y el ranking con `!top`. "
+        f"Al nivel 10 desbloqueas {canal_txt(CANAL_NIVEL_10)}, y cada mes el top 3 "
+        "gana 🔥 **Activo del mes**.\n\n"
+
+        "**🎮 Tu Steam**\n"
         f"Escribe `!steam <tu enlace>` en {canal_txt('🤖・comandos')} y tu perfil "
-        f"aparecerá en {canal_txt('🎮・perfiles-steam')}.\n\n"
+        f"aparecerá en {canal_txt(CANAL_STEAM)}.\n\n"
 
-        "**❓ ¿Qué comandos hay?**\n"
-        f"Escribe `!ayuda` en {canal_txt('🤖・comandos')} para ver todo lo que puedes hacer.\n\n"
+        "**❔ ¿Dudas o ideas?**\n"
+        f"Pregunta en {canal_txt(CANAL_PREGUNTAS)} y manda ideas con "
+        "`!sugerencia <texto>`. Todos los comandos: `!ayuda`.\n\n"
 
-        "**📜 Y lo más importante:** lee las reglas y respeta a la comunidad. 🎉"
+        f"📜 Y lo más importante: lee {canal_txt(CANAL_REGLAS)} y respeta a la "
+        "comunidad. 🎉"
     )
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -787,6 +843,24 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         )
 
 
+def embed_bienvenida(member):
+    """Embed de bienvenida con las menciones a canales resueltas en tiempo real."""
+    guild = member.guild
+    embed = discord.Embed(
+        title=f"👋 ¡Bienvenido/a a {guild.name}!",
+        description=(
+            f"¡Hola {member.mention}! 🎉\n\n"
+            f"📜 Lee las reglas y la guía de inicio en {mencion_canal(guild, CANAL_REGLAS)}\n"
+            f"🎭 Elige tus roles en {mencion_canal(guild, CANAL_ROLES)}\n"
+            f"🙋 Preséntate en {mencion_canal(guild, CANAL_PRESENTACIONES)}\n\n"
+            f"Eres el miembro **#{guild.member_count}** 🎊"
+        ),
+        colour=discord.Colour(0x2ECC71),
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    return embed
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     """Da la bienvenida y asigna el rol automatico cuando entra alguien."""
@@ -805,17 +879,10 @@ async def on_member_join(member: discord.Member):
     # Mensaje de bienvenida (embed con foto y contador de miembros)
     canal = discord.utils.get(guild.text_channels, name=CANAL_BIENVENIDA)
     if canal is not None:
-        embed = discord.Embed(
-            title=f"👋 ¡Bienvenido/a a {guild.name}!",
-            description=(
-                f"¡Hola {member.mention}! 🎉\n\n"
-                f"Pásate por {CANAL_REGLAS} y date tus roles en {CANAL_ROLES}.\n\n"
-                f"Eres el miembro **#{guild.member_count}** 🎊"
-            ),
-            colour=discord.Colour(0x2ECC71),
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await canal.send(embed=embed)
+        try:
+            await canal.send(embed=embed_bienvenida(member))
+        except discord.HTTPException as e:
+            print(f"⚠️ No pude enviar la bienvenida de {member} en {guild.name}: {e}")
 
 
 # =====================================================================
@@ -1107,7 +1174,7 @@ async def reglas(ctx):
         await ctx.send(f"⚠️ No encuentro el canal {CANAL_REGLAS}. Corre !setup primero.")
         return
     embed = discord.Embed(
-        description=TEXTO_REGLAS,
+        description=construir_reglas(guild),
         colour=discord.Colour(0x5865F2),
     )
     mensaje, editado = await publicar_o_editar_fijo(guild, canal, "reglas", embed)
@@ -1163,11 +1230,7 @@ async def panelroles(ctx):
         return
     embed = discord.Embed(
         title="🎭 Elige tus roles",
-        description=(
-            "Pulsa un botón para darte o quitarte un rol.\n\n"
-            "**🎮 Plataforma:** en qué juegas.\n"
-            "**🌍 Región:** desde dónde te conectas."
-        ),
+        description=TEXTO_PANEL_ROLES,
         colour=discord.Colour(0x2ECC71),
     )
     # Al editar se vuelve a pasar PanelRoles(): los custom_id no cambian.
