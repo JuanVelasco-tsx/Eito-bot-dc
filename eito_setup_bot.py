@@ -27,6 +27,7 @@ from database import (
     mes_ya_premiado,
     set_mensaje_cochipuerco,
     set_mensaje_fijo,
+    set_user_xp,
     top_xp_mensual,
 )
 
@@ -1579,6 +1580,81 @@ async def exportarserver_error(ctx, error):
 
 
 # =====================================================================
+#  COMANDOS: SETXP / RESETXP (corrigen la XP TOTAL; solo dueño o DEVELOPER)
+# =====================================================================
+# Tope razonable: nivel_desde_xp recorre los niveles uno a uno (O(nivel)).
+MAX_XP_MANUAL = 10_000_000
+
+
+async def cambiar_xp_total(ctx, miembro, nueva_xp):
+    """Fija la XP total de `miembro` y responde con el antes y el despues.
+
+    Solo toca user_xp: no modifica xp_mensual, no da ni quita roles de
+    recompensa y no anuncia subida de nivel (a diferencia de !darnivel).
+    Funciona tambien en el servidor principal (no depende de EITO_GUILD_ID)."""
+    gid, uid = str(ctx.guild.id), str(miembro.id)
+    antes = await get_user_xp(gid, uid)
+    await set_user_xp(gid, uid, nueva_xp)
+    nivel_antes, nivel_despues = nivel_desde_xp(antes), nivel_desde_xp(nueva_xp)
+    await ctx.send(
+        f"✅ XP de {miembro.mention}: nivel **{nivel_antes}** ({antes} XP) → "
+        f"nivel **{nivel_despues}** ({nueva_xp} XP).",
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+    await registrar_log(
+        ctx.guild,
+        f"🛠️ **{ctx.author}** cambió la XP total de **{miembro}**: "
+        f"{antes} XP → {nueva_xp} XP (nivel {nivel_antes} → {nivel_despues})",
+    )
+
+
+async def responder_error_xp_total(ctx, error, uso):
+    """Mensajes de error compartidos por !setxp y !resetxp."""
+    if isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ Este comando solo funciona en un servidor.")
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ No encuentro a ese miembro.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ Uso: {uso}")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send(f"❌ Argumento inválido. Uso: {uso}")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ Solo el dueño del servidor o un DEVELOPER pueden usar este comando.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+@bot.command(name="setxp")
+@commands.guild_only()
+@commands.check(es_dueno_o_developer)
+async def setxp(ctx, miembro: discord.Member, xp: int):
+    if xp < 0:
+        await ctx.send("❌ La XP debe ser 0 o mayor.")
+        return
+    if xp > MAX_XP_MANUAL:
+        await ctx.send(f"❌ La XP máxima permitida es {MAX_XP_MANUAL}.")
+        return
+    await cambiar_xp_total(ctx, miembro, xp)
+
+
+@setxp.error
+async def setxp_error(ctx, error):
+    await responder_error_xp_total(ctx, error, "`!setxp @usuario <xp>`")
+
+
+@bot.command(name="resetxp")
+@commands.guild_only()
+@commands.check(es_dueno_o_developer)
+async def resetxp(ctx, miembro: discord.Member):
+    await cambiar_xp_total(ctx, miembro, 0)
+
+
+@resetxp.error
+async def resetxp_error(ctx, error):
+    await responder_error_xp_total(ctx, error, "`!resetxp @usuario`")
+
+
+# =====================================================================
 #  MODERACIÓN: BORRAR MENSAJES
 # =====================================================================
 @bot.command(name="borrar")
@@ -2268,6 +2344,8 @@ AYUDA_SECCIONES = [
         ("importarniveles", "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel", None),
         ("exportarserver", "`!exportarserver` — exporta roles y canales a JSON por DM (dueño o DEVELOPER)", None),
         ("darnivel", "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (solo en server de pruebas)", None),
+        ("setxp", "`!setxp @usuario <xp>` — fija la XP total de alguien (dueño o DEVELOPER)", None),
+        ("resetxp", "`!resetxp @usuario` — pone en 0 la XP total de alguien (dueño o DEVELOPER)", None),
     ]),
 ]
 

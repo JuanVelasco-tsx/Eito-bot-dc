@@ -80,6 +80,10 @@ según tus permisos.
   desde los avisos de subida de nivel. Sin `confirmar` solo muestra una vista previa.
 - `!exportarserver` — exporta roles y canales (permisos, overrides) a JSON por DM.
   Requiere ser admin **y** el dueño del servidor o tener el rol DEVELOPER.
+- `!setxp @usuario <xp>` / `!resetxp @usuario` — corrigen la XP **total** de alguien
+  (0 a 10 000 000). Solo el dueño del servidor o el rol DEVELOPER, también en EITO.
+  Solo tocan `user_xp`: no modifican el Activo del mes ni dan o quitan roles de
+  recompensa. Responden con el antes y el después y quedan en el canal de registros.
 - `!darnivel <nivel> [@usuario]` — asigna un nivel exacto. **Solo para pruebas**:
   se bloquea en el servidor definido en `EITO_GUILD_ID` (EITO).
 

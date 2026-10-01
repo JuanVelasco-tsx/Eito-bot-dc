@@ -168,6 +168,22 @@ async def add_user_xp(guild_id, user_id, cantidad) -> int:
         return nueva_xp
 
 
+async def set_user_xp(guild_id, user_id, xp) -> None:
+    """Fija la XP total de un usuario a `xp` (crea el registro si no existe).
+
+    Solo toca user_xp: no modifica xp_mensual."""
+    async with SessionLocal() as session:
+        stmt = pg_insert(UserXP).values(
+            guild_id=str(guild_id), user_id=str(user_id), xp=xp
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["guild_id", "user_id"],
+            set_={"xp": xp},
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
 async def get_all_xp(guild_id) -> dict:
     """Devuelve un diccionario {user_id: xp} con toda la XP de un servidor."""
     async with SessionLocal() as session:
