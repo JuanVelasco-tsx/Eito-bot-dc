@@ -44,7 +44,7 @@ de los avisos de subida de nivel.
    | `EITO_GUILD_ID` | No | ID del servidor principal. Ahí `!darnivel` queda bloqueado. Déjala vacía en servers de pruebas. |
    | `RELEASE_CHANNEL_ID` | No | Canal donde el webhook publica nuevas versiones. Si falta, busca el canal `🔧・l4d2-mod-loader`. |
    | `RELEASE_WEBHOOK_SECRET` | Para el webhook | Secreto `Bearer` de `POST /release-webhook`. Sin él, el endpoint responde 503. |
-   | `PORT` | No | Puerto del servidor web interno (por defecto `8080`). No la dejes definida pero vacía. |
+   | `PORT` | No | Puerto del servidor web interno (por defecto `8080`; si está vacía también se usa `8080`). |
 
 4. En el [Developer Portal](https://discord.com/developers/applications),
    dentro de tu app → **Bot**, activa los *Privileged Gateway Intents*:
@@ -74,7 +74,7 @@ según tus permisos.
 - `!info` (alias `!guia`) — publica la guía de inicio
 - `!panelroles` — panel de roles con botones
 - `!presentaciones` — plantilla de presentación
-- `!anuncio <texto>` — publica un anuncio
+- `!anuncio <texto>` — publica un anuncio (permiso *Gestionar servidor*: también lo pueden usar los admins y el staff con ese permiso)
 - `!panelcochipuerco` — publica el panel del rol +18 y configura el acceso NSFW
 - `!importarniveles <YYYY-MM> [confirmar]` — reconstruye la XP mensual de un mes
   desde los avisos de subida de nivel. Sin `confirmar` solo muestra una vista previa.
@@ -90,7 +90,7 @@ según tus permisos.
 - `!mute @usuario <duración> [razón]` (ej. `10m`, `2h`, `1d`) · *Moderar miembros*
 - `!unmute @usuario` · *Moderar miembros*
 - `!warn @usuario [razón]` · *Expulsar miembros*
-- `!warns [@usuario]` — ver avisos (cualquiera puede usarlo)
+- `!warns [@usuario]` — ver avisos. Cualquiera ve los suyos; ver los de otro requiere *Expulsar* o *Moderar miembros*
 
 ### Utilidad
 - `!encuesta <pregunta>` — encuesta con 👍👎

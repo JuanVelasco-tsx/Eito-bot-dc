@@ -42,7 +42,7 @@ TOKEN = os.getenv("DISCORD_TOKEN", "PON_TU_TOKEN_AQUI")
 # --- WEBHOOK HTTP (para notificaciones de nuevas versiones via GitHub Actions) ---
 RELEASE_CHANNEL_ID = os.getenv("RELEASE_CHANNEL_ID")
 RELEASE_WEBHOOK_SECRET = os.getenv("RELEASE_WEBHOOK_SECRET")
-WEBHOOK_PORT = int(os.getenv("PORT", "8080"))
+WEBHOOK_PORT = int(os.getenv("PORT") or 8080)
 
 # --- SERVIDOR PRINCIPAL (si esta definido, !darnivel se bloquea en este server) ---
 EITO_GUILD_ID = (os.getenv("EITO_GUILD_ID") or "").strip()
@@ -1187,7 +1187,7 @@ async def presentaciones_error(ctx, error):
 #  COMANDO: ANUNCIO (publica un anuncio con formato en el canal de anuncios)
 # =====================================================================
 @bot.command(name="anuncio")
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(manage_guild=True)
 async def anuncio(ctx, *, texto: str):
     guild = ctx.guild
     canal = discord.utils.get(guild.text_channels, name=CANAL_ANUNCIOS)
@@ -1207,7 +1207,7 @@ async def anuncio(ctx, *, texto: str):
 @anuncio.error
 async def anuncio_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Necesitas ser Administrador.")
+        await ctx.send("❌ Necesitas el permiso de Gestionar servidor.")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send("❌ Uso: `!anuncio <texto del anuncio>`")
     else:
@@ -1702,24 +1702,44 @@ async def warn_error(ctx, error):
 # =====================================================================
 #  MODERACIÓN: WARNS (ver avisos de un miembro)
 # =====================================================================
+MAX_AVISOS_EMBED = 20  # un embed admite 25 fields como maximo
 @bot.command(name="warns")
 async def warns(ctx, miembro: discord.Member = None):
     miembro = miembro or ctx.author
+    # Cualquiera ve sus propios avisos; los de otros solo moderadores.
+    if miembro != ctx.author:
+        perms = ctx.author.guild_permissions
+        if not (perms.kick_members or perms.moderate_members):
+            await ctx.send("❌ Solo los moderadores pueden ver los avisos de otros.")
+            return
     gid = str(ctx.guild.id)
     uid = str(miembro.id)
     lista = await get_warns(gid, uid)
     if not lista:
         await ctx.send(f"✅ **{miembro.display_name}** no tiene avisos.")
         return
+
+    # Un embed admite 25 fields: se muestran los MAX_AVISOS_EMBED mas recientes
+    # (get_warns devuelve de mas antiguo a mas nuevo).
+    total = len(lista)
+    if total > MAX_AVISOS_EMBED:
+        descripcion = f"Total: **{total}** (mostrando los {MAX_AVISOS_EMBED} más recientes)"
+    else:
+        descripcion = f"Total: **{total}**"
     embed = discord.Embed(
         title=f"⚠️ Avisos de {miembro.display_name}",
-        description=f"Total: **{len(lista)}**",
+        description=descripcion,
         colour=discord.Colour(0xE67E22),
     )
-    for i, w in enumerate(lista, 1):
+    primero = total - min(total, MAX_AVISOS_EMBED) + 1
+    for i, w in enumerate(lista[-MAX_AVISOS_EMBED:], primero):
+        razon = w["reason"]
+        if len(razon) > 200:  # evita pasar el limite de tamaño del embed
+            razon = razon[:199] + "…"
+        fecha = w["timestamp"].strftime("%d/%m/%Y") if w.get("timestamp") else "?"
         embed.add_field(
-            name=f"Aviso #{i}",
-            value=f"Razón: {w['reason']}\nPor: {w['moderator']}",
+            name=f"Aviso #{i} · {fecha}",
+            value=f"Razón: {razon}\nPor: {w['moderator']}",
             inline=False,
         )
     await ctx.send(embed=embed)
@@ -2126,6 +2146,7 @@ async def ayuda(ctx):
             "`!serverinfo` — info del servidor\n"
             "`!nivel [@usuario]` — muestra tu nivel y XP\n"
             "`!top` — ranking de niveles del servidor\n"
+            "`!warns` — muestra tus avisos\n"
             "`!ayuda` — muestra esta lista"
         ),
         inline=False,
@@ -2154,6 +2175,14 @@ async def ayuda(ctx):
                 "`!warn @usuario [razón]` — avisa a un miembro\n"
                 "`!warns [@usuario]` — muestra los avisos"
             ),
+            inline=False,
+        )
+
+    # Staff con Gestionar servidor que no es admin (los admins ya lo ven abajo)
+    if perms.manage_guild and not es_admin:
+        embed.add_field(
+            name="📣 Staff",
+            value="`!anuncio <texto>` — publica un anuncio",
             inline=False,
         )
 
