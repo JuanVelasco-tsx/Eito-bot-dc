@@ -65,8 +65,9 @@ mientras estén en 0 los contadores se registran pero el rol no se asigna.
 ### 🏅 Logros
 
 Los logros se anuncian en el canal **🏅・logros** (lo creas tú a mano; si no existe se
-usa el canal de niveles): un embed con el color del rol, quién lo consiguió, el motivo
-y su avatar, mencionando solo a esa persona. Además, cuando el staff **agrega a mano**
+usa el canal de niveles): «🎉 ¡Felicidades @usuario!» (se menciona solo a esa persona) y un
+embed con el color del rol, su avatar, un título y una frase propios de cada rango y la
+posición entre quienes lo tienen («Eres el OG #3»). Los textos están en `LOGROS_INFO`. Además, cuando el staff **agrega a mano**
 un rol de honor (hoy 🥇 OG, lista `ROLES_HONOR_IDS`), el bot lo anuncia con el motivo
 «Reconocido por el staff». Quitar el rol, o dar cualquier otro rol, no anuncia nada.
 El Activo del mes sigue anunciándose en el canal de niveles.

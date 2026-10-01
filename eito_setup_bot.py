@@ -727,26 +727,60 @@ def canal_logros(guild):
     return buscar_canal_tolerante(guild, CANAL_LOGROS) or buscar_canal(guild, CANAL_NIVELES)
 
 
-async def anunciar_logro(miembro, rol, motivo):
+# Textos del anuncio por rol (clave: ID del rol): (emoji, titulo, frase).
+# Un rol que no este aqui usa ("🏅", "Nuevo logro") y el motivo como frase.
+LOGROS_INFO = {
+    ROL_OG_ID: (
+        "🥇", "Nuevo OG de EITO",
+        "Parte de la historia de la comunidad, reconocido por el staff.",
+    ),
+    ROL_SUPERVIVIENTE_ID: (
+        "🧟", "Nuevo Superviviente",
+        "Se unió a 10 partidas. Los zombies le tienen miedo.",
+    ),
+    ROL_CONVOCADOR_ID: (
+        "🎯", "Nuevo Convocador",
+        "Armó 10 partidas con gente. Sin él no se juega.",
+    ),
+}
+
+
+def nombre_sin_emoji(nombre):
+    """Nombre del rol sin el emoji (o simbolos) del principio: '🥇 OG' -> 'OG'."""
+    limpio = re.sub(r"^[\W_]+", "", nombre)
+    return limpio or nombre
+
+
+async def anunciar_logro(miembro, rol, motivo=""):
     """Anuncia que `miembro` consiguio `rol` en el canal de logros.
 
-    Embed con el color del rol, el motivo en una linea y el avatar. Solo se
-    menciona (ping) al propio miembro. Devuelve True si se pudo publicar."""
+    Mensaje "🎉 ¡Felicidades @usuario!" (solo se menciona/pingea al propio
+    miembro) y un embed con el color del rol, el avatar, el nombre del rango en
+    negrita (sin emoji repetido ni mencion del rol) y su posicion entre quienes lo
+    tienen. Los textos salen de LOGROS_INFO; un rol sin entrada usa "Nuevo logro" y
+    `motivo` como frase (`motivo` se conserva por compatibilidad).
+    Devuelve True si se pudo publicar."""
     canal = canal_logros(miembro.guild)
     if canal is None:
         print(f"⚠️ [{miembro.guild.name}] No hay canal de logros ({CANAL_LOGROS}) ni de "
               f"niveles para anunciar {rol.name} de {miembro}.")
         return False
+    emoji, titulo, frase = LOGROS_INFO.get(rol.id, ("🏅", "Nuevo logro", motivo))
+    nombre = nombre_sin_emoji(rol.name)
     color = rol.colour if rol.colour.value else discord.Colour(0xF1C40F)
-    embed = discord.Embed(
-        description=f"🏅 ¡{miembro.mention} consiguió {rol.mention}!\n{motivo}",
-        colour=color,
-    )
+    descripcion = f"{miembro.mention} recibió el rango **{nombre}**."
+    if frase:
+        descripcion += f"\n*{frase}*"
+    embed = discord.Embed(title=f"{emoji} {titulo}", description=descripcion, colour=color)
     embed.set_thumbnail(url=miembro.display_avatar.url)
+    # Posicion = cuantos miembros tienen el rol. Si la cache aun no refleja al
+    # nuevo (add_roles no la actualiza al instante), se cuenta igual.
+    posicion = len({m.id for m in rol.members} | {miembro.id})
+    embed.set_footer(text=f"Eres el {nombre} #{posicion} · Mira tus logros con !perfil")
     try:
         # El ping real va en el contenido: las menciones dentro de un embed no notifican.
         await canal.send(
-            content=miembro.mention,
+            content=f"🎉 ¡Felicidades {miembro.mention}!",
             embed=embed,
             allowed_mentions=discord.AllowedMentions(
                 users=[miembro], roles=False, everyone=False
@@ -2546,6 +2580,10 @@ async def steam_error(ctx, error):
 #  CONVOCATORIAS DE !jugar (botones "Me apunto" / "Cerrar", expiracion y conteo)
 # =====================================================================
 LFG_DURACION = timedelta(hours=2)   # una convocatoria dura 2 horas
+# Textos del embed (se reutilizan al cerrar para reescribirlos)
+LFG_TEXTO_BUSCA = " está buscando compañía."
+LFG_TEXTO_BUSCO = " buscó compañía."
+LFG_TEXTO_BOTON = "Pulsa **✋ Me apunto** si te unes."
 MAX_APUNTADOS_EMBED = 15            # nombres que se muestran en el embed
 # Anti-farmeo: al cerrarse solo cuenta si estuvo abierta al menos LFG_MIN_PARA_CONTAR
 # y cada persona suma como maximo TOPE_DIARIO_LFG partidas (y el autor
@@ -2584,6 +2622,12 @@ def actualizar_embed_lfg(embed, guild, participantes, cerrada=False, cuenta=True
     else:
         embed.add_field(name=nombre, value=valor, inline=False)
     if cerrada:
+        # Embed cerrado: "buscó" en pasado y sin la linea que invita a pulsar el boton
+        # (se conservan el mensaje opcional del autor y la lista de apuntados).
+        descripcion = (embed.description or "").replace(LFG_TEXTO_BUSCA, LFG_TEXTO_BUSCO, 1)
+        if descripcion.endswith(LFG_TEXTO_BOTON):
+            descripcion = descripcion[: -len(LFG_TEXTO_BOTON)]
+        embed.description = descripcion.rstrip()
         embed.title = "🔒 Convocatoria cerrada"
         if not cuenta:
             minutos = int(LFG_MIN_PARA_CONTAR.total_seconds() // 60)
@@ -2820,9 +2864,9 @@ async def jugar(ctx, *, mensaje: str = ""):
     embed = discord.Embed(
         title="🎮 ¡Alguien quiere jugar!",
         description=(
-            f"**{ctx.author.display_name}** está buscando compañía.\n\n"
+            f"**{ctx.author.display_name}**{LFG_TEXTO_BUSCA}\n\n"
             f"💬 {texto_extra}\n\n"
-            "Pulsa **✋ Me apunto** si te unes."
+            f"{LFG_TEXTO_BOTON}"
         ),
         colour=discord.Colour(0xE74C3C),
     )
