@@ -110,22 +110,20 @@ CANDIDATOS_ACTIVO_MES = 50
 
 # --- FUNDADORES (los primeros miembros por fecha de entrada) ---
 # El nombre solo lo usa !setup para crear el rol en servers nuevos; el bot lo
-# busca por ID. TODO: pon aqui el ID real del rol (mientras sea 0, !fundadores
-# rechaza el comando y on_member_join no asigna nada).
+# busca por ID.
 ROL_FUNDADOR = "🌱 Fundador"
-ROL_FUNDADOR_ID = 0
+ROL_FUNDADOR_ID = 1555338989043454132
 MAX_FUNDADORES = 100
 
 # --- RANGOS POR ANTIGUEDAD (solo tiempo en el server, sin nivel) ---
 # Los nombres solo los usa !setup; el bot busca los roles por ID.
-# TODO: pon aqui los IDs reales (mientras sean 0, el loop de rangos salta el server).
 ROL_VETERANO = "🥉 Veterano"
-ROL_VETERANO_ID = 0
+ROL_VETERANO_ID = 1555339142362304642
 ROL_LEYENDA = "🥈 Leyenda"
-ROL_LEYENDA_ID = 0
+ROL_LEYENDA_ID = 1555339179406262332
 # OG es manual: el bot nunca lo da ni lo quita, solo lo muestra en !antiguedad.
 ROL_OG = "🥇 OG"
-ROL_OG_ID = 0
+ROL_OG_ID = 1555339224637775954
 DIAS_VETERANO = 90
 DIAS_LEYENDA = 180
 
