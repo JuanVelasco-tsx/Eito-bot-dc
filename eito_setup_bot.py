@@ -261,7 +261,7 @@ def construir_guia(guild):
         f"{canal_txt(CANAL_SPRAYS)}.\n\n"
 
         "**🔧 Mod Loader**\n"
-        f"Descargas y novedades en {canal_txt(CANAL_MODLOADER)}. Activa 🔔 Mod Loader "
+        f"Descargas y novedades en {canal_txt(CANAL_MODLOADER)}. Pulsa 🛠️ Avisos Mod Loader "
         f"en {canal_txt(CANAL_ROLES)} para enterarte de cada versión nueva.\n\n"
 
         "**📈 Niveles**\n"
