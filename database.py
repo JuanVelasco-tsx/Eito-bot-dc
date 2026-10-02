@@ -529,10 +529,16 @@ async def incrementar_contador(guild_id, user_id, tipo, n=1) -> int:
 
 
 async def incrementar_contador_con_tope(guild_id, user_id, tipo, tope, n=1):
-    """Suma `n` al contador `tipo` SOLO si su valor actual es menor que `tope`
+    """Suma `n` al contador `tipo` SOLO si el resultado no pasa de `tope`
     (comprobacion y suma en una sola sentencia, atomica).
 
-    Devuelve el valor nuevo, o None si ya estaba en el tope (no suma nada)."""
+    Es "todo o nada": si valor + n superaria el tope no suma nada (p. ej. 358 + 5
+    con tope 360 no da 363; tampoco suma solo lo que falta). Con n=1 es lo mismo
+    que "mientras valor < tope".
+
+    Devuelve el valor nuevo, o None si no se sumo."""
+    if n > tope:
+        return None  # nunca cabria (y el INSERT inicial se saltaria la comprobacion)
     async with SessionLocal() as session:
         stmt = pg_insert(Contador).values(
             guild_id=str(guild_id), user_id=str(user_id), tipo=tipo, valor=n
@@ -540,7 +546,7 @@ async def incrementar_contador_con_tope(guild_id, user_id, tipo, tope, n=1):
         stmt = stmt.on_conflict_do_update(
             index_elements=["guild_id", "user_id", "tipo"],
             set_={"valor": Contador.__table__.c.valor + n},
-            where=Contador.__table__.c.valor < tope,
+            where=Contador.__table__.c.valor + n <= tope,
         ).returning(Contador.valor)
         resultado = await session.execute(stmt)
         fila = resultado.first()

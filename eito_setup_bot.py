@@ -153,16 +153,30 @@ ROL_SUPERVIVIENTE = "🧟 Superviviente"
 ROL_SUPERVIVIENTE_ID = 1555354849162563676
 ROL_CONVOCADOR = "🎯 Convocador"
 ROL_CONVOCADOR_ID = 1555354957253841008
+ROL_VOZ_ACTIVA = "🎧 Voz activa"
+# TODO: pon aqui el ID real. Con 0 no se asigna el rol, pero los minutos y la XP
+# de voz se registran igual.
+ROL_VOZ_ACTIVA_ID = 0
 # (tipo de contador, umbral, ID del rol)
 RANGOS_POR_CONTADOR = [
     ("partidas", 10, ROL_SUPERVIVIENTE_ID),             # 🧟 Superviviente
     ("convocatorias_exitosas", 10, ROL_CONVOCADOR_ID),  # 🎯 Convocador
+    ("voz_minutos", 3000, ROL_VOZ_ACTIVA_ID),           # 🎧 Voz activa (3000 min = 50 h)
 ]
 # Texto del motivo del logro: "<umbral> <nombre>" (p. ej. "10 partidas jugadas")
 NOMBRES_CONTADOR = {
     "partidas": "partidas jugadas",
     "convocatorias_exitosas": "convocatorias exitosas",
+    "voz_minutos": "minutos en voz",
 }
+
+
+def motivo_umbral(tipo, umbral):
+    """Texto del motivo de un rango por contador ("10 partidas jugadas"; la voz se
+    expresa en horas: "50 horas en voz")."""
+    if tipo == "voz_minutos":
+        return f"{umbral // 60} horas en voz"
+    return f"{umbral} {NOMBRES_CONTADOR[tipo]}"
 
 # --- ROLES QUE SE PUEDEN AUTOASIGNAR CON BOTONES ---
 # (etiqueta del boton, nombre exacto del rol, emoji)
@@ -213,6 +227,7 @@ ROLES = [
     (ROL_OG, 0xFFD700, True, False),
     (ROL_SUPERVIVIENTE, 0x1ABC9C, False, False),
     (ROL_CONVOCADOR, 0xE74C3C, False, False),
+    (ROL_VOZ_ACTIVA, 0x3498DB, False, False),
     ("PC", 0xE67E22, False, True),
     ("XBOX", 0x2ECC71, False, True),
     ("PlayStation", 0x3498DB, False, True),
@@ -470,6 +485,8 @@ async def setup_hook():
         actualizar_rangos.start()
     if not cerrar_convocatorias_vencidas.is_running():
         cerrar_convocatorias_vencidas.start()
+    if not contar_voz.is_running():
+        contar_voz.start()
 
 
 # =====================================================================
@@ -777,6 +794,10 @@ LOGROS_INFO = {
         "🎯", "Nuevo Convocador",
         "Armó 10 partidas con gente. Sin él no se juega.",
     ),
+    ROL_VOZ_ACTIVA_ID: (
+        "🎧", "Nueva Voz activa",
+        "Pasó 50 horas en voz con la comunidad. Siempre en la sala.",
+    ),
 }
 
 
@@ -930,7 +951,7 @@ async def actualizar_rangos():
     # DIAS_CONTADORES_DIARIOS dias ya no sirven para el tope.
     try:
         limite = dia_contable(datetime.now(timezone.utc) - timedelta(days=DIAS_CONTADORES_DIARIOS))
-        for prefijo in ("partidas_dia:", "convocatorias_dia:"):
+        for prefijo in ("partidas_dia:", "convocatorias_dia:", "voz_dia:"):
             await purgar_contadores_diarios(prefijo, limite)
     except Exception:
         print("⚠️ Error limpiando los contadores diarios:")
@@ -982,13 +1003,13 @@ async def revisar_rango_contador(guild, miembro, tipo, valor, anunciar=True):
         if rol is None or rol in miembro.roles:
             continue
         try:
-            await miembro.add_roles(rol, reason=f"{umbral} {NOMBRES_CONTADOR[tipo_rango]}")
+            await miembro.add_roles(rol, reason=motivo_umbral(tipo_rango, umbral))
         except discord.HTTPException as e:
             print(f"⚠️ [{guild.name}] No pude dar {rol.name} a {miembro}: {e}")
             continue
         dados += 1
         if anunciar:
-            await anunciar_logro(miembro, rol, f"{umbral} {NOMBRES_CONTADOR[tipo_rango]}")
+            await anunciar_logro(miembro, rol, motivo_umbral(tipo_rango, umbral))
     return dados
 
 
@@ -1018,7 +1039,7 @@ async def revisar_umbrales_guild(guild):
             if miembro is None or miembro.bot or rol in miembro.roles:
                 continue
             try:
-                await miembro.add_roles(rol, reason=f"{umbral} {NOMBRES_CONTADOR[tipo]} (respaldo)")
+                await miembro.add_roles(rol, reason=f"{motivo_umbral(tipo, umbral)} (respaldo)")
             except Exception as e:
                 print(f"⚠️ [{guild.name}] No pude dar {rol.name} a {miembro}: {e}")
 
@@ -2587,6 +2608,87 @@ async def steam_error(ctx, error):
 
 
 # =====================================================================
+#  VOZ ACTIVA (XP y minutos por estar en canales de voz acompañado)
+# =====================================================================
+VOZ_MINUTOS_TICK = 5        # el loop corre cada 5 min y cada tick suma 5 min
+TOPE_VOZ_DIARIO = 360       # minutos contables por persona y dia (6 h; dia en UTC-5)
+XP_POR_MINUTO_VOZ = 1       # 1 XP por minuto contado
+
+
+def es_elegible_voz(miembro):
+    """True si cuenta para la voz: no es un bot y no esta ensordecido (ni por si
+    mismo ni por el servidor). Estar muteado SI cuenta."""
+    voz = miembro.voice
+    return (
+        not miembro.bot
+        and voz is not None
+        and not voz.self_deaf
+        and not voz.deaf
+    )
+
+
+async def contar_tick_voz(guild, miembro):
+    """Cuenta un tick de voz (VOZ_MINUTOS_TICK minutos) para `miembro`.
+
+    Primero reserva los minutos en el tope diario (atomico: "voz_dia:YYYY-MM-DD"
+    nunca pasa de TOPE_VOZ_DIARIO); si ya no caben, el tick no cuenta nada. Si
+    cuenta: suma los minutos a "voz_minutos" (con el motor de rangos por umbral) y
+    la XP (total y mensual). Devuelve True si el tick conto."""
+    reservado = await incrementar_contador_con_tope(
+        guild.id, miembro.id, f"voz_dia:{dia_contable()}", TOPE_VOZ_DIARIO, VOZ_MINUTOS_TICK
+    )
+    if reservado is None:
+        return False
+    # Cada parte en su try: un fallo en una no impide la otra.
+    try:
+        await contar(guild, miembro.id, "voz_minutos", VOZ_MINUTOS_TICK)
+    except Exception as e:
+        print(f"⚠️ [{guild.name}] No pude contar los minutos de voz de {miembro}: {e}")
+    try:
+        await sumar_xp(miembro, VOZ_MINUTOS_TICK * XP_POR_MINUTO_VOZ)
+    except Exception as e:
+        print(f"⚠️ [{guild.name}] No pude sumar la XP de voz de {miembro}: {e}")
+    return True
+
+
+async def contar_voz_guild(guild):
+    """Un tick de voz en un servidor: recorre los canales de voz (menos el AFK) y
+    cuenta a los elegibles de cada canal que tenga al menos 2 elegibles."""
+    afk_id = guild.afk_channel.id if guild.afk_channel else None
+    for canal in guild.voice_channels:
+        if canal.id == afk_id:
+            continue
+        try:
+            elegibles = [m for m in canal.members if es_elegible_voz(m)]
+            if len(elegibles) < 2:
+                continue  # solo/a, con bots o con ensordecidos: no cuenta
+            for miembro in elegibles:
+                try:
+                    await contar_tick_voz(guild, miembro)
+                except Exception as e:
+                    print(f"⚠️ [{guild.name}] Error contando la voz de {miembro}: {e}")
+        except Exception:
+            print(f"⚠️ [{guild.name}] Error en el canal de voz {canal}:")
+            traceback.print_exc()
+
+
+@tasks.loop(minutes=5)
+async def contar_voz():
+    """Cada 5 minutos suma tiempo y XP de voz a quien este acompañado."""
+    for guild in bot.guilds:
+        try:
+            await contar_voz_guild(guild)
+        except Exception:
+            print(f"⚠️ Error contando la voz en {guild.name}:")
+            traceback.print_exc()
+
+
+@contar_voz.before_loop
+async def antes_de_contar_voz():
+    await bot.wait_until_ready()
+
+
+# =====================================================================
 #  CONVOCATORIAS DE !jugar (botones "Me apunto" / "Cerrar", expiracion y conteo)
 # =====================================================================
 LFG_DURACION = timedelta(hours=2)   # una convocatoria dura 2 horas
@@ -3042,6 +3144,17 @@ async def _seguro(coro, defecto):
         return defecto
 
 
+def formato_horas(minutos):
+    """'X h Y min' (p. ej. 80 -> '1 h 20 min')."""
+    return f"{minutos // 60} h {minutos % 60} min"
+
+
+def progreso_voz(minutos):
+    """'12/50 h' hacia Voz activa, o '✅' si ya llego al umbral."""
+    umbral = next((u for t, u, _rol_id in RANGOS_POR_CONTADOR if t == "voz_minutos"), 3000)
+    return "✅" if minutos >= umbral else f"{minutos // 60}/{umbral // 60} h"
+
+
 def progreso_contador(tipo, valor):
     """'7/10' hacia el rango del contador `tipo`, o '✅' si ya llego al umbral."""
     umbral = next((u for t, u, _rol_id in RANGOS_POR_CONTADOR if t == tipo), 10)
@@ -3098,6 +3211,14 @@ async def perfil(ctx, miembro: discord.Member = None):
         value=(f"**{convocatorias}** · {ROL_CONVOCADOR} "
                f"{progreso_contador('convocatorias_exitosas', convocatorias)}"),
         inline=True,
+    )
+    minutos_voz = contadores.get("voz_minutos", 0)
+    hoy_voz = contadores.get(f"voz_dia:{dia_contable()}", 0)
+    embed.add_field(
+        name="🎧 Tiempo en voz",
+        value=(f"**{formato_horas(minutos_voz)}** · {ROL_VOZ_ACTIVA} {progreso_voz(minutos_voz)}\n"
+               f"hoy: {formato_horas(hoy_voz)} / {TOPE_VOZ_DIARIO // 60} h"),
+        inline=False,
     )
     await ctx.send(embed=embed)
 

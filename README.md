@@ -62,6 +62,16 @@ Cada 6 horas revisa estos umbrales como respaldo (sin anunciar). Los IDs de esto
 (`ROL_SUPERVIVIENTE_ID`, `ROL_CONVOCADOR_ID`) se configuran en `eito_setup_bot.py`;
 mientras estén en 0 los contadores se registran pero el rol no se asigna.
 
+### 🎧 Voz activa (XP por voz)
+
+Cada 5 minutos el bot recorre los canales de voz y, a quien está **acompañado**, le suma
+**5 minutos y 5 XP** (1 XP por minuto, total y del mes: cuenta para el Activo del mes).
+Condiciones: el canal debe tener **al menos 2 personas** que cuenten; los bots y quienes
+están **ensordecidos** no cuentan (estar muteado sí); el **canal AFK** no cuenta. Hay un
+tope de **6 horas por día** por persona (día en UTC-5): al llegar, ese día ya no suma.
+A las **50 horas** acumuladas se gana **🎧 Voz activa** (con anuncio en logros; permanente).
+`!perfil` muestra tu tiempo en voz, el progreso hacia el rango y lo contado hoy.
+
 ### 🏅 Logros
 
 Los logros se anuncian en el canal **🏅・logros** (lo creas tú a mano; si no existe se
