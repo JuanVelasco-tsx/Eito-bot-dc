@@ -2196,22 +2196,57 @@ async def presentaciones_error(ctx, error):
 # =====================================================================
 #  COMANDO: ANUNCIO (publica un anuncio con formato en el canal de anuncios)
 # =====================================================================
+USO_ANUNCIO = "❌ Uso: `!anuncio [everyone|here] <texto del anuncio>`"
+
+
+def parsear_anuncio(texto):
+    """Separa el ping opcional del texto: ("everyone" | "here" | None, cuerpo).
+
+    "everyone"/"here" solo cuentan si son la PRIMERA palabra (sin importar
+    mayusculas); si no hay ping, el cuerpo es el texto tal cual."""
+    partes = texto.split(None, 1)
+    if partes and partes[0].lower() in ("everyone", "here"):
+        return partes[0].lower(), (partes[1].strip() if len(partes) > 1 else "")
+    return None, texto
+
+
 @bot.command(name="anuncio")
 @commands.has_permissions(manage_guild=True)
 async def anuncio(ctx, *, texto: str):
     guild = ctx.guild
+    ping, cuerpo = parsear_anuncio(texto)
+    if ping is not None and not cuerpo:
+        await ctx.send(USO_ANUNCIO)
+        return
     canal = discord.utils.get(guild.text_channels, name=CANAL_ANUNCIOS)
     if canal is None:
         await ctx.send(f"⚠️ No encuentro el canal {CANAL_ANUNCIOS}. Corre !setup primero.")
         return
+    if ping is not None and not canal.permissions_for(ctx.author).mention_everyone:
+        await ctx.send("❌ Necesitas el permiso Mencionar @everyone para anunciar con ping.")
+        return
     embed = discord.Embed(
         title="📣 ANUNCIO",
-        description=texto,
+        description=cuerpo,
         colour=discord.Colour(0xE67E22),
     )
     embed.set_footer(text=f"Publicado por {ctx.author.display_name}")
-    await canal.send(embed=embed)
-    await ctx.send(f"✅ Anuncio publicado en {canal.mention}")
+    if ping is None:
+        await canal.send(embed=embed)
+        sufijo = ""
+    else:
+        # El ping va en el content (en el embed no notifica) y solo en este envio
+        # se permite mencionar a everyone.
+        await canal.send(
+            content=f"@{ping}",
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(everyone=True, roles=False, users=False),
+        )
+        sufijo = f" (con @{ping})"
+    await ctx.send(
+        f"✅ Anuncio publicado en {canal.mention}{sufijo}",
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
 
 
 @anuncio.error
@@ -2219,7 +2254,7 @@ async def anuncio_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ Necesitas el permiso de Gestionar servidor.")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ Uso: `!anuncio <texto del anuncio>`")
+        await ctx.send(USO_ANUNCIO)
     else:
         await ctx.send(f"❌ Error: {error}")
 
@@ -3867,7 +3902,7 @@ AYUDA_SECCIONES = [
         ("panelroles", "`!panelroles` — publica o actualiza el panel de roles con botones", None),
         ("paneltickets", "`!paneltickets` — publica o actualiza el panel de tickets de soporte", None),
         ("presentaciones", "`!presentaciones` — publica o actualiza la plantilla de presentación", None),
-        ("anuncio", "`!anuncio <texto>` — publica un anuncio", None),
+        ("anuncio", "`!anuncio [everyone|here] <texto>` — publica un anuncio (con ping si pones everyone o here)", None),
         ("panelcochipuerco", "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW", None),
     ]),
     ("⚙️ Configurar y datos", [

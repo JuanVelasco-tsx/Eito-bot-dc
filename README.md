@@ -148,7 +148,7 @@ según tus permisos.
 - `!panelroles` — publica o edita el panel de roles con botones (los botones siguen funcionando)
 - `!paneltickets` — publica o edita el panel de soporte con el botón **Abrir ticket** en `🎫・soporte` (o en el canal actual si no existe)
 - `!presentaciones` — publica o edita la plantilla de presentación
-- `!anuncio <texto>` — publica un anuncio (permiso *Gestionar servidor*: también lo pueden usar los admins y el staff con ese permiso)
+- `!anuncio [everyone|here] <texto>` — publica un anuncio (permiso *Gestionar servidor*: también lo pueden usar los admins y el staff con ese permiso). Con `everyone` o `here` como **primera palabra** añade ese ping fuera del embed; además hace falta el permiso *Mencionar @everyone* en el canal de anuncios
 - `!panelcochipuerco` — publica el panel del rol +18 y configura el acceso NSFW
 - `!importarniveles <YYYY-MM> [confirmar]` — reconstruye la XP mensual de un mes
   desde los avisos de subida de nivel. Sin `confirmar` solo muestra una vista previa.
