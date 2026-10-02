@@ -118,7 +118,7 @@ El Activo del mes sigue anunciándose en el canal de niveles.
 
 6. En el servidor, el rol del bot debe estar **por encima** de los roles que
    gestiona (roles de plataforma/región, Nivel 10, Activo del mes...). Luego un
-   admin corre `!setup`.
+   admin corre `!setup` (vista previa) y, si todo está bien, `!setup confirmar`.
 
 ## 📖 Comandos
 
@@ -126,7 +126,7 @@ Todos usan el prefijo `!`. Escribe `!ayuda` en el servidor para ver la lista
 según tus permisos.
 
 ### Administración (solo admins)
-- `!setup` — crea canales, categorías y roles
+- `!setup [confirmar]` — sin argumento solo muestra una **vista previa** (qué roles, categorías y canales crearía y qué permisos reconfiguraría; avisa con ⚠️ si va a crear categorías, porque quizá ya existen con otro nombre). Con `!setup confirmar` crea lo que falta
 - `!setupsteam` — reconfigura el canal de perfiles de Steam (solo-bot)
 - `!setuprecompensas` — reconfigura los canales de recompensa por nivel
 - `!reglas` — publica las reglas; si ya existe el mensaje, lo **edita** en vez de duplicarlo

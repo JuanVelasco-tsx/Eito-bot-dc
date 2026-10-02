@@ -1298,9 +1298,101 @@ async def on_member_join(member: discord.Member):
 # =====================================================================
 #  COMANDO: SETUP (crea roles y canales)
 # =====================================================================
+def plan_setup(guild):
+    """Lo que !setup crearia en este servidor (lo que no encuentra), sin crear
+    nada. Usa los mismos criterios que el comando: roles por nombre, categorias
+    por nombre y canales por nombre dentro de su categoria.
+
+    Devuelve {"roles": [nombre], "categorias": [nombre],
+              "canales": [(categoria, nombre, existe_en_otra_categoria)]}."""
+    roles = [
+        nombre for nombre, _color, _hoist, _ment in ROLES
+        if discord.utils.get(guild.roles, name=nombre) is None
+    ]
+    categorias, canales = [], []
+    for bloque in ESTRUCTURA:
+        cat = discord.utils.get(guild.categories, name=bloque["categoria"])
+        if cat is None:
+            categorias.append(bloque["categoria"])
+        for nombre_canal, _tipo in bloque["canales"]:
+            if cat is not None and discord.utils.get(cat.channels, name=nombre_canal):
+                continue
+            # Si ya hay un canal con ese nombre en otra categoria, !setup crearia un duplicado
+            en_otra = buscar_canal_tolerante(guild, nombre_canal) is not None
+            canales.append((bloque["categoria"], nombre_canal, en_otra))
+    return {"roles": roles, "categorias": categorias, "canales": canales}
+
+
+def permisos_setup(guild):
+    """Lineas de texto con los permisos/mensajes que !setup reconfiguraria."""
+    def estado(nombre):
+        return "" if buscar_canal(guild, nombre) is not None else " *(se crearía antes)*"
+    lineas = [
+        f"• {CANAL_STEAM}: solo lectura para @everyone (el bot escribe) y mensaje de "
+        f"instrucciones si está vacío{estado(CANAL_STEAM)}",
+        f"• {CANAL_MODLOADER}: mensaje de presentación si está vacío{estado(CANAL_MODLOADER)}",
+    ]
+    for _nivel, nombre_rol, _color, nombre_canal in NIVEL_RECOMPENSAS:
+        lineas.append(
+            f"• {nombre_canal}: oculto para @everyone y visible solo para {nombre_rol}"
+            f"{estado(nombre_canal)}"
+        )
+    return lineas
+
+
+async def vista_previa_setup(ctx):
+    """!setup sin argumento: muestra lo que crearia y reconfiguraria, sin tocar nada."""
+    guild = ctx.guild
+    plan = plan_setup(guild)
+    lineas = []
+    lineas.append(
+        f"👥 **Roles que crearía ({len(plan['roles'])}):** "
+        + (", ".join(plan["roles"]) if plan["roles"] else "ninguno")
+    )
+    lineas.append(
+        f"📁 **Categorías que crearía ({len(plan['categorias'])}):** "
+        + (", ".join(plan["categorias"]) if plan["categorias"] else "ninguna")
+    )
+    if plan["canales"]:
+        lineas.append(f"💬 **Canales que crearía ({len(plan['canales'])}):**")
+        for categoria, nombre, en_otra in plan["canales"]:
+            nota = " ⚠️ ya existe un canal con ese nombre en otra categoría" if en_otra else ""
+            lineas.append(f"• {nombre} → {categoria}{nota}")
+    else:
+        lineas.append("💬 **Canales que crearía (0):** ninguno")
+    lineas.append("🔐 **Permisos que reconfiguraría:**")
+    lineas.extend(permisos_setup(guild))
+    if plan["categorias"]:
+        lineas.append(
+            f"\n⚠️ **Va a crear {len(plan['categorias'])} categoría(s)** "
+            f"({', '.join(plan['categorias'])}). Probablemente ya existen con otro nombre "
+            "(se renombraron): revisa antes de confirmar para no duplicarlas."
+        )
+    if not (plan["roles"] or plan["categorias"] or plan["canales"]):
+        lineas.append("\n✅ No falta nada: !setup solo reconfiguraría los permisos de arriba.")
+    descripcion = "\n".join(lineas)
+    if len(descripcion) > 4000:
+        descripcion = descripcion[:3990] + "\n…"
+    embed = discord.Embed(
+        title="🔍 Vista previa de !setup — no se creó nada",
+        description=descripcion,
+        colour=discord.Colour(0xF1C40F),
+    )
+    embed.set_footer(text="Para ejecutarlo: !setup confirmar")
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="setup")
 @commands.has_permissions(administrator=True)
-async def setup(ctx):
+async def setup(ctx, confirmar: str = None):
+    # Sin "confirmar" solo se muestra la vista previa: no se crea nada.
+    if confirmar is not None and confirmar.lower() != "confirmar":
+        await ctx.send("❌ Uso: `!setup` (vista previa) o `!setup confirmar`.")
+        return
+    if confirmar is None:
+        await vista_previa_setup(ctx)
+        return
+
     guild = ctx.guild
     await ctx.send("🔧 Montando la estructura...")
 
@@ -3366,7 +3458,7 @@ AYUDA_SECCIONES = [
         ("panelcochipuerco", "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW", None),
     ]),
     ("⚙️ Configurar y datos", [
-        ("setup", "`!setup` — crea canales, categorías y roles", None),
+        ("setup", "`!setup [confirmar]` — vista previa de lo que crearía; con `confirmar` crea canales, categorías y roles", None),
         ("setupsteam", "`!setupsteam` — reconfigura el canal de perfiles", None),
         ("setuprecompensas", "`!setuprecompensas` — reconfigura los canales de nivel", None),
         ("importarniveles", "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel", None),
