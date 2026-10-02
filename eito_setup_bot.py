@@ -593,6 +593,41 @@ async def otorgar_recompensas(guild, member, nivel_previo, nivel_nuevo, canal_av
                 pass
 
 
+async def sumar_xp(miembro, cantidad, canal_fallback=None):
+    """Suma `cantidad` de XP a `miembro`: total y del mes actual (UTC, para el
+    Activo del mes); si sube de nivel lo avisa en el canal de niveles (o en
+    `canal_fallback` si ese canal no existe) y da las recompensas del nivel.
+
+    Es la logica comun de la XP por mensajes y por voz. Devuelve la XP total
+    resultante; los errores de la BD se propagan (cada llamador decide)."""
+    guild = miembro.guild
+    gid, uid = str(guild.id), str(miembro.id)
+    nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
+    xp_total = await add_user_xp(gid, uid, cantidad)
+    nivel_nuevo = nivel_desde_xp(xp_total)
+
+    # Misma XP al acumulado del mes actual (UTC) para el Activo del mes.
+    # Aislado para que un fallo aqui no impida el aviso de nivel.
+    try:
+        await add_xp_mensual(gid, uid, mes_utc(), cantidad)
+    except Exception:
+        print("⚠️ Error sumando XP mensual:")
+        traceback.print_exc()
+
+    # Aviso de subida de nivel (en el canal de niveles si existe)
+    if nivel_nuevo > nivel_previo:
+        canal_nivel = buscar_canal(guild, CANAL_NIVELES) or canal_fallback
+        if canal_nivel is not None:
+            try:
+                await canal_nivel.send(
+                    AVISO_NIVEL.format(mencion=miembro.mention, nivel=nivel_nuevo)
+                )
+            except discord.Forbidden:
+                pass
+        await otorgar_recompensas(guild, miembro, nivel_previo, nivel_nuevo, canal_nivel)
+    return xp_total
+
+
 # =====================================================================
 #  ACTIVO DEL MES (premio mensual al top de XP del mes anterior)
 # =====================================================================
@@ -1108,32 +1143,7 @@ async def on_message(message: discord.Message):
         # comandos de abajo deben seguir funcionando SIEMPRE.
         try:
             ultimo_xp[clave] = ahora
-            nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
-            xp_total = await add_user_xp(gid, uid, XP_POR_MENSAJE)
-            nivel_nuevo = nivel_desde_xp(xp_total)
-
-            # Misma XP al acumulado del mes actual (UTC) para el Activo del mes.
-            # Aislado para que un fallo aqui no impida el aviso de nivel.
-            try:
-                await add_xp_mensual(gid, uid, mes_utc(), XP_POR_MENSAJE)
-            except Exception:
-                print("⚠️ Error sumando XP mensual:")
-                traceback.print_exc()
-
-            # Aviso de subida de nivel (en el canal de niveles si existe)
-            if nivel_nuevo > nivel_previo:
-                canal_nivel = buscar_canal(message.guild, CANAL_NIVELES) or message.channel
-                try:
-                    await canal_nivel.send(
-                        AVISO_NIVEL.format(
-                            mencion=message.author.mention, nivel=nivel_nuevo
-                        )
-                    )
-                except discord.Forbidden:
-                    pass
-                await otorgar_recompensas(
-                    message.guild, message.author, nivel_previo, nivel_nuevo, canal_nivel
-                )
+            await sumar_xp(message.author, XP_POR_MENSAJE, message.channel)
         except Exception:
             print(f"⚠️ Error procesando XP de {message.author} en {message.guild}:")
             traceback.print_exc()
