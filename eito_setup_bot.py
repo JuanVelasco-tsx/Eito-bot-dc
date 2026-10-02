@@ -154,9 +154,7 @@ ROL_SUPERVIVIENTE_ID = 1555354849162563676
 ROL_CONVOCADOR = "🎯 Convocador"
 ROL_CONVOCADOR_ID = 1555354957253841008
 ROL_VOZ_ACTIVA = "🎧 Voz activa"
-# TODO: pon aqui el ID real. Con 0 no se asigna el rol, pero los minutos y la XP
-# de voz se registran igual.
-ROL_VOZ_ACTIVA_ID = 0
+ROL_VOZ_ACTIVA_ID = 1555372947324280852
 # (tipo de contador, umbral, ID del rol)
 RANGOS_POR_CONTADOR = [
     ("partidas", 10, ROL_SUPERVIVIENTE_ID),             # 🧟 Superviviente
