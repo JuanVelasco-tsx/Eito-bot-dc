@@ -1,6 +1,7 @@
 """EITO SERVER SETUP BOT - crea categorias, canales, roles y da funciones al server."""
 
 import asyncio
+import hmac
 import io
 import json
 import os
@@ -411,22 +412,35 @@ bot = commands.Bot(
 # =====================================================================
 #  SERVIDOR WEB INTERNO (webhook HTTP para notificaciones de releases)
 # =====================================================================
+def recortar(texto, limite):
+    """`texto` recortado a `limite` caracteres como maximo (termina en "…" si se corto)."""
+    return texto if len(texto) <= limite else texto[: limite - 1] + "…"
+
+
 async def handle_release_webhook(request):
     """POST /release-webhook - recibe notificaciones de nuevas versiones."""
     if not RELEASE_WEBHOOK_SECRET:
         return web.json_response(
             {"error": "RELEASE_WEBHOOK_SECRET no configurado"}, status=503)
     auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {RELEASE_WEBHOOK_SECRET}":
+    # Comparacion en tiempo constante (bytes: compare_digest no admite str no ASCII)
+    if not hmac.compare_digest(
+        auth.encode("utf-8"), f"Bearer {RELEASE_WEBHOOK_SECRET}".encode("utf-8")
+    ):
         return web.json_response({"error": "No autorizado"}, status=401)
     try:
         data = await request.json()
     except Exception:
         return web.json_response({"error": "JSON invalido"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "El body debe ser un objeto JSON"}, status=400)
     version = data.get("version")
-    if not version:
-        return web.json_response({"error": "Falta el campo version"}, status=400)
+    if not isinstance(version, str) or not version.strip():
+        return web.json_response(
+            {"error": "El campo version es obligatorio y debe ser un texto"}, status=400)
     changelog = data.get("changelog", "Sin changelog.")
+    if not isinstance(changelog, str):
+        return web.json_response({"error": "El campo changelog debe ser un texto"}, status=400)
 
     canal = None
     if RELEASE_CHANNEL_ID:
@@ -449,9 +463,10 @@ async def handle_release_webhook(request):
 
     rol = discord.utils.get(canal.guild.roles, name=ROL_MODLOADER) if canal.guild else None
 
+    # Limites de Discord para un embed: titulo 256 y descripcion 4096 caracteres.
     embed = discord.Embed(
-        title=f"\U0001f680 Nueva version: {version}",
-        description=changelog,
+        title=recortar(f"\U0001f680 Nueva version: {version}", 256),
+        description=recortar(changelog, 4096),
         colour=discord.Colour(0x9184D9),
     )
     try:
