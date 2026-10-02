@@ -1337,6 +1337,20 @@ async def ticket_cerrar(interaction):
                 ephemeral=True,
             )
             return
+        # La transcripcion es la conversacion privada: si @everyone ve el canal de
+        # transcripciones no se envia nada y el ticket no se cierra.
+        if canal_log.permissions_for(guild.default_role).view_channel:
+            await interaction.followup.send(
+                "⚠️ No cerré el ticket: el canal de transcripciones es público.", ephemeral=True
+            )
+            await canal.send("⚠️ El canal de transcripciones es público; un admin debe corregirlo")
+            await registrar_log(
+                guild,
+                f"⚠️ No se cerró {canal.mention}: {canal_log.mention} es visible para @everyone, "
+                "así que no se envió la transcripción. Corrige sus permisos (`!setup confirmar` "
+                "o `!paneltickets` los reconfiguran).",
+            )
+            return
         try:
             texto = await generar_transcripcion(canal)
             archivo = discord.File(io.BytesIO(texto.encode("utf-8")), filename=f"{canal.name}.txt")
@@ -2146,6 +2160,7 @@ async def paneltickets(ctx):
     guild = ctx.guild
     canal = buscar_canal(guild, CANAL_SOPORTE) or ctx.channel
     await configurar_canal_soporte(ctx)
+    await configurar_canal_transcripciones(ctx)
     embed = discord.Embed(
         title="🎫 Soporte",
         description=(
