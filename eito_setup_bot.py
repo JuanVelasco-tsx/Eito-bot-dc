@@ -396,7 +396,15 @@ intents.members = True  # Necesario para la bienvenida automatica (on_member_joi
 # intents.reactions ya viene activado por defecto en Intents.default() (no es
 # privilegiado) y alcanza para on_raw_reaction_add/remove del rol +18.
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+# Proteccion global: ningun mensaje del bot pinguea a @everyone/@here ni a roles
+# (p. ej. texto de un usuario copiado en una razon); los envios que SI deben
+# mencionar un rol o @everyone lo piden con su propio allowed_mentions.
+bot = commands.Bot(
+    command_prefix="!", intents=intents, help_command=None,
+    allowed_mentions=discord.AllowedMentions(
+        everyone=False, roles=False, users=True, replied_user=True
+    ),
+)
 
 
 
