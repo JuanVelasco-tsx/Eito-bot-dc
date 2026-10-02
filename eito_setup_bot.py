@@ -1,5 +1,6 @@
 """EITO SERVER SETUP BOT - crea categorias, canales, roles y da funciones al server."""
 
+import asyncio
 import io
 import json
 import os
@@ -106,6 +107,26 @@ ROLES_STAFF_NSFW = [
     1546381843132317736,  # ⁘Moderador⁘
 ]
 
+# --- TICKETS DE SOPORTE ---
+CANAL_SOPORTE = "🎫・soporte"
+CATEGORIA_TICKETS = "🎫 TICKETS"
+# Canal privado del staff donde se guardan las transcripciones (no es el de registros).
+CANAL_TRANSCRIPCIONES = "📁・tickets-log"
+# Roles de staff de los tickets: se buscan por ID (como ROLES_STAFF_NSFW), no por
+# nombre, porque los nombres reales del server llevan simbolos distintos.
+# Ven cada ticket y el canal de transcripciones, y pueden cerrar tickets.
+ROLES_STAFF_TICKETS = [
+    1544889052011040828,  # 👑 EITO LA GOAT
+    ROL_DEVELOPER_ID,     # 🔧 DEVELOPER
+    1545581826654076979,  # 🛡 Admins
+    1546381843132317736,  # ⁘Moderador⁘
+]
+# Los unicos que se mencionan en el embed de bienvenida de cada ticket.
+ROLES_PING_TICKETS = [
+    1545581826654076979,  # 🛡 Admins
+    1546381843132317736,  # ⁘Moderador⁘
+]
+
 # --- RECOMPENSAS POR NIVEL (canal privado que se desbloquea) ---
 # (nivel requerido, nombre exacto del rol, color, nombre exacto del canal)
 CANAL_NIVEL_10 = "🔓・nivel-10"
@@ -195,22 +216,25 @@ ROLES_REGION = [
 ]
 
 # --- ESTRUCTURA DE CANALES ---
+# "categoria_id" (opcional): las categorias se renombran por temporadas, asi que
+# !setup las busca primero por ID, luego por nombre y solo si no existen las crea
+# con "categoria". Los bloques sin ID se buscan solo por nombre.
 ESTRUCTURA = [
-    {"categoria": "📢 INFORMACIÓN", "canales": [
+    {"categoria": "📢 INFORMACIÓN", "categoria_id": 1546637166434582691, "canales": [
         (CANAL_BIENVENIDA, "text"), (CANAL_REGLAS, "text"),
         ("📣・anuncios", "text"), (CANAL_ROLES, "text"),
         ("📅・eventos", "text"), ("🙋・presentaciones", "text")]},
-    {"categoria": "💬 COMUNIDAD", "canales": [
+    {"categoria": "💬 COMUNIDAD", "categoria_id": 1544888934293708840, "canales": [
         ("💬・general", "text"), ("📸・clips-y-capturas", "text"),
         ("🤖・comandos", "text"), (CANAL_NIVELES, "text"),
-        (CANAL_SUGERENCIAS, "text")]},
-    {"categoria": "🧟 LEFT 4 DEAD", "canales": [
+        (CANAL_SUGERENCIAS, "text"), (CANAL_SOPORTE, "text")]},
+    {"categoria": "🧟 LEFT 4 DEAD", "categoria_id": 1546637174097580043, "canales": [
         ("📦・packs", "text"), ("⚙️・autoexec", "text"),
         ("📜・scripts", "text"), ("🗂️・colecciones", "text"),
         (CANAL_STEAM, "text"), (CANAL_MODLOADER, "text")]},
-    {"categoria": "🛡️ STAFF", "canales": [
-        (CANAL_LOGS, "text")]},
-    {"categoria": "🔒 EXCLUSIVO", "canales": [
+    {"categoria": "🛡️ STAFF", "categoria_id": 1546647219162189895, "canales": [
+        (CANAL_LOGS, "text"), (CANAL_TRANSCRIPCIONES, "text")]},
+    {"categoria": "🔒 EXCLUSIVO", "categoria_id": 1549612006523404318, "canales": [
         (nombre_canal, "text") for _n, _r, _c, nombre_canal in NIVEL_RECOMPENSAS]},
 ]
 
@@ -1127,6 +1151,243 @@ class PanelRoles(discord.ui.View):
 
 
 # =====================================================================
+#  TICKETS DE SOPORTE (canal privado con el staff, botones persistentes)
+# =====================================================================
+# Sin tablas: el dueño del ticket se guarda en el topic del canal ("ticket:<id>").
+# En memoria solo se evitan carreras: (guild_id, user_id) creando su ticket y
+# canales que ya se estan cerrando.
+tickets_en_creacion = set()
+tickets_cerrando = set()
+
+
+def dueno_ticket(canal):
+    """ID del usuario dueño del ticket (topic "ticket:<id>") o None si no es un ticket."""
+    encontrado = re.fullmatch(r"ticket:(\d+)", getattr(canal, "topic", None) or "")
+    return int(encontrado.group(1)) if encontrado else None
+
+
+def roles_staff_tickets(guild):
+    """Roles de ROLES_STAFF_TICKETS que existen en el server."""
+    return [rol for rol in (guild.get_role(i) for i in ROLES_STAFF_TICKETS) if rol is not None]
+
+
+def roles_ping_tickets(guild):
+    """Roles de ROLES_PING_TICKETS que existen en el server."""
+    return [rol for rol in (guild.get_role(i) for i in ROLES_PING_TICKETS) if rol is not None]
+
+
+def es_staff_ticket(miembro):
+    """True si el miembro tiene algun rol de ROLES_STAFF_TICKETS."""
+    return any(rol.id in ROLES_STAFF_TICKETS for rol in miembro.roles)
+
+
+def nombre_canal_ticket(usuario):
+    """"ticket-<nombre>" con el nombre de usuario limpio (solo a-z, 0-9, - y _)."""
+    limpio = re.sub(r"[^a-z0-9_-]", "", usuario.name.lower())[:80]
+    return f"ticket-{limpio or usuario.id}"
+
+
+async def generar_transcripcion(canal):
+    """Texto de la transcripcion del canal: fecha (UTC), autor, contenido y URLs de adjuntos."""
+    lineas = [f"Transcripción de #{canal.name}", ""]
+    async for mensaje in canal.history(limit=None, oldest_first=True):
+        fecha = mensaje.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        contenido = mensaje.clean_content
+        if not contenido and mensaje.embeds:
+            contenido = "[embed] " + " / ".join(
+                filter(None, (mensaje.embeds[0].title, mensaje.embeds[0].description))
+            )
+        lineas.append(f"[{fecha} UTC] {mensaje.author} ({mensaje.author.id}): {contenido}")
+        for adjunto in mensaje.attachments:
+            lineas.append(f"    [adjunto] {adjunto.url}")
+    return "\n".join(lineas) + "\n"
+
+
+async def ticket_abrir(interaction):
+    """Boton "Abrir ticket": crea el canal privado del usuario (maximo uno abierto)."""
+    await interaction.response.defer(ephemeral=True)
+    guild, usuario = interaction.guild, interaction.user
+    clave = (guild.id, usuario.id)
+    if clave in tickets_en_creacion:
+        await interaction.followup.send("⏳ Ya estoy creando tu ticket, espera un momento.", ephemeral=True)
+        return
+    existente = next((c for c in guild.text_channels if dueno_ticket(c) == usuario.id), None)
+    if existente is not None:
+        await interaction.followup.send(
+            f"❌ Ya tienes un ticket abierto: {existente.mention}", ephemeral=True
+        )
+        return
+
+    tickets_en_creacion.add(clave)
+    canal = None
+    try:
+        categoria = discord.utils.get(guild.categories, name=CATEGORIA_TICKETS)
+        if categoria is None:
+            categoria = await guild.create_category(
+                CATEGORIA_TICKETS,
+                overwrites={
+                    guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                    guild.me: discord.PermissionOverwrite(view_channel=True),
+                },
+            )
+        staff = roles_staff_tickets(guild)
+        permisos = discord.PermissionOverwrite(
+            view_channel=True, send_messages=True, read_message_history=True, attach_files=True
+        )
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            usuario: permisos,
+            # read_message_history y embed_links: sin ellos el bot no puede generar
+            # la transcripcion ni publicar el embed de bienvenida.
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True,
+                embed_links=True, manage_channels=True,
+            ),
+        }
+        for rol in staff:
+            overwrites[rol] = permisos
+        canal = await guild.create_text_channel(
+            nombre_canal_ticket(usuario),
+            category=categoria,
+            topic=f"ticket:{usuario.id}",
+            overwrites=overwrites,
+            reason=f"Ticket de {usuario}",
+        )
+        embed = discord.Embed(
+            title="🎫 Ticket de soporte",
+            description=(
+                f"¡Hola {usuario.mention}! El staff te atenderá en cuanto pueda.\n\n"
+                "Cuéntanos qué necesitas con el mayor detalle posible. "
+                "Cuando termines, pulsa **🔒 Cerrar ticket**."
+            ),
+            colour=discord.Colour(0x5865F2),
+        )
+        pings = roles_ping_tickets(guild)
+        await canal.send(
+            content=" ".join([usuario.mention] + [rol.mention for rol in pings]),
+            embed=embed,
+            view=CerrarTicket(),
+            allowed_mentions=discord.AllowedMentions(users=[usuario], roles=pings, everyone=False),
+        )
+    except discord.Forbidden:
+        await _limpiar_ticket_fallido(canal)
+        await interaction.followup.send(
+            "❌ No tengo permisos para crear el ticket. Avisa a un admin: mi rol necesita "
+            "el permiso **Gestionar canales**.",
+            ephemeral=True,
+        )
+        return
+    except discord.HTTPException as e:
+        await _limpiar_ticket_fallido(canal)
+        print(f"⚠️ [{guild.name}] No pude crear el ticket de {usuario}: {e}")
+        await interaction.followup.send(
+            "❌ No pude crear el ticket. Inténtalo de nuevo en un momento.", ephemeral=True
+        )
+        return
+    finally:
+        tickets_en_creacion.discard(clave)
+
+    await interaction.followup.send(f"✅ Tu ticket está listo: {canal.mention}", ephemeral=True)
+    await registrar_log(guild, f"🎫 **{usuario}** abrió el ticket {canal.mention}")
+
+
+async def _limpiar_ticket_fallido(canal):
+    """Borra el canal de un ticket que se creo pero no pudo terminar de montarse."""
+    if canal is None:
+        return
+    try:
+        await canal.delete(reason="Ticket que no se pudo terminar de crear")
+    except discord.HTTPException:
+        pass
+
+
+async def ticket_cerrar(interaction):
+    """Boton "Cerrar ticket": solo el dueño o el staff. Guarda la transcripcion y borra el canal."""
+    await interaction.response.defer(ephemeral=True)
+    guild, canal = interaction.guild, interaction.channel
+    dueno_id = dueno_ticket(canal)
+    if dueno_id is None:
+        await interaction.followup.send("❌ Este canal no es un ticket.", ephemeral=True)
+        return
+    if not (interaction.user.id == dueno_id or es_staff_ticket(interaction.user)):
+        await interaction.followup.send(
+            "❌ Solo quien abrió el ticket o el staff puede cerrarlo.", ephemeral=True
+        )
+        return
+    if canal.id in tickets_cerrando:
+        await interaction.followup.send("⏳ Este ticket ya se está cerrando.", ephemeral=True)
+        return
+
+    tickets_cerrando.add(canal.id)
+    try:
+        # Sin transcripcion guardada no se borra nada.
+        canal_log = buscar_canal(guild, CANAL_TRANSCRIPCIONES)
+        if canal_log is None:
+            await interaction.followup.send(
+                f"⚠️ No encuentro {CANAL_TRANSCRIPCIONES}, así que no cierro el ticket "
+                "(se perdería la transcripción). Avisa a un admin: debe correr `!setup confirmar`.",
+                ephemeral=True,
+            )
+            return
+        try:
+            texto = await generar_transcripcion(canal)
+            archivo = discord.File(io.BytesIO(texto.encode("utf-8")), filename=f"{canal.name}.txt")
+            await canal_log.send(
+                f"📁 Ticket **{canal.name}** · abierto por <@{dueno_id}> · "
+                f"cerrado por {interaction.user.mention}",
+                file=archivo,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException as e:
+            print(f"⚠️ [{guild.name}] No pude guardar la transcripción de {canal.name}: {e}")
+            await interaction.followup.send(
+                "❌ No pude guardar la transcripción, así que el ticket sigue abierto. "
+                "Revisa que yo pueda escribir en el canal de transcripciones.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send("🔒 Cerrando el ticket…", ephemeral=True)
+        await canal.send(
+            f"🔒 Ticket cerrado por {interaction.user.mention}. "
+            "Este canal se borrará en 5 segundos.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        await asyncio.sleep(5)
+        try:
+            await canal.delete(reason=f"Ticket cerrado por {interaction.user}")
+        except discord.HTTPException as e:
+            print(f"⚠️ [{guild.name}] No pude borrar el ticket {canal.name}: {e}")
+            await canal.send("⚠️ No pude borrar este canal; que un admin lo borre a mano.")
+    finally:
+        tickets_cerrando.discard(canal.id)
+
+
+class PanelTickets(discord.ui.View):
+    """Vista persistente del panel de soporte (custom_id fijo: sobrevive reinicios)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Abrir ticket", emoji="🎫", style=discord.ButtonStyle.primary,
+                       custom_id="ticket::abrir")
+    async def abrir(self, interaction: discord.Interaction, boton: discord.ui.Button):
+        await ticket_abrir(interaction)
+
+
+class CerrarTicket(discord.ui.View):
+    """Vista persistente dentro de cada ticket (el dueño sale del topic del canal)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Cerrar ticket", emoji="🔒", style=discord.ButtonStyle.danger,
+                       custom_id="ticket::cerrar")
+    async def cerrar(self, interaction: discord.Interaction, boton: discord.ui.Button):
+        await ticket_cerrar(interaction)
+
+
+# =====================================================================
 #  EVENTOS
 # =====================================================================
 @bot.event
@@ -1135,6 +1396,8 @@ async def on_ready():
     await crear_tablas()
     # Registrar la vista persistente para que los botones funcionen tras reiniciar
     bot.add_view(PanelRoles())
+    bot.add_view(PanelTickets())
+    bot.add_view(CerrarTicket())
     print(f"✅ Conectado como {bot.user}")
     # Lista real de comandos (la misma que usa !ayuda)
     for titulo, entradas in AYUDA_SECCIONES:
@@ -1298,29 +1561,63 @@ async def on_member_join(member: discord.Member):
 # =====================================================================
 #  COMANDO: SETUP (crea roles y canales)
 # =====================================================================
-def plan_setup(guild):
-    """Lo que !setup crearia en este servidor (lo que no encuentra), sin crear
-    nada. Usa los mismos criterios que el comando: roles por nombre, categorias
-    por nombre y canales por nombre dentro de su categoria.
+def buscar_categoria_bloque(guild, bloque):
+    """Categoria de un bloque de ESTRUCTURA: primero por "categoria_id", luego por
+    nombre; None si no existe (el llamador decide si la crea)."""
+    cat_id = bloque.get("categoria_id")
+    if cat_id:
+        cat = guild.get_channel(cat_id)
+        if isinstance(cat, discord.CategoryChannel):
+            return cat
+    return discord.utils.get(guild.categories, name=bloque["categoria"])
 
-    Devuelve {"roles": [nombre], "categorias": [nombre],
-              "canales": [(categoria, nombre, existe_en_otra_categoria)]}."""
+
+def buscar_canal_en_servidor(guild, nombre):
+    """Canal (texto o voz) `nombre` en CUALQUIER categoria del servidor, o None.
+    Tolera el selector de variacion de emoji."""
+    objetivo = _sin_selector_emoji(nombre)
+    return next(
+        (c for c in guild.channels
+         if not isinstance(c, discord.CategoryChannel) and _sin_selector_emoji(c.name) == objetivo),
+        None,
+    )
+
+
+def nombre_categoria_de(canal):
+    """Nombre de la categoria de un canal, o "sin categoría"."""
+    return canal.category.name if canal.category else "sin categoría"
+
+
+def plan_setup(guild):
+    """Lo que !setup haria en este servidor, sin crear nada. Usa los mismos
+    criterios que el comando: roles por nombre, categorias por ID y luego por
+    nombre, y canales por nombre en todo el servidor (no solo en su categoria).
+
+    Una categoria que no existe solo se crea si algun canal suyo se va a crear.
+
+    Devuelve {"roles": [nombre],
+              "categorias": [nombre],           # se crearian
+              "categorias_omitidas": [nombre],  # no existen, pero todos sus canales ya existen
+              "canales": [(categoria, nombre)],          # se crearian
+              "existentes": [(nombre, categoria_actual)]}  # ya existen: no se tocan."""
     roles = [
         nombre for nombre, _color, _hoist, _ment in ROLES
         if discord.utils.get(guild.roles, name=nombre) is None
     ]
-    categorias, canales = [], []
+    categorias, omitidas, canales, existentes = [], [], [], []
     for bloque in ESTRUCTURA:
-        cat = discord.utils.get(guild.categories, name=bloque["categoria"])
-        if cat is None:
-            categorias.append(bloque["categoria"])
+        nuevos = 0
         for nombre_canal, _tipo in bloque["canales"]:
-            if cat is not None and discord.utils.get(cat.channels, name=nombre_canal):
-                continue
-            # Si ya hay un canal con ese nombre en otra categoria, !setup crearia un duplicado
-            en_otra = buscar_canal_tolerante(guild, nombre_canal) is not None
-            canales.append((bloque["categoria"], nombre_canal, en_otra))
-    return {"roles": roles, "categorias": categorias, "canales": canales}
+            existente = buscar_canal_en_servidor(guild, nombre_canal)
+            if existente is None:
+                canales.append((bloque["categoria"], nombre_canal))
+                nuevos += 1
+            else:
+                existentes.append((nombre_canal, nombre_categoria_de(existente)))
+        if buscar_categoria_bloque(guild, bloque) is None:
+            (categorias if nuevos else omitidas).append(bloque["categoria"])
+    return {"roles": roles, "categorias": categorias, "categorias_omitidas": omitidas,
+            "canales": canales, "existentes": existentes}
 
 
 def permisos_setup(guild):
@@ -1337,6 +1634,13 @@ def permisos_setup(guild):
             f"• {nombre_canal}: oculto para @everyone y visible solo para {nombre_rol}"
             f"{estado(nombre_canal)}"
         )
+    lineas.append(
+        f"• {CANAL_TRANSCRIPCIONES}: oculto para @everyone y visible solo para el staff "
+        f"de tickets{estado(CANAL_TRANSCRIPCIONES)}"
+    )
+    lineas.append(
+        f"• {CANAL_SOPORTE}: solo lectura para @everyone (el bot escribe){estado(CANAL_SOPORTE)}"
+    )
     return lineas
 
 
@@ -1345,6 +1649,13 @@ async def vista_previa_setup(ctx):
     guild = ctx.guild
     plan = plan_setup(guild)
     lineas = []
+    # Primero la lista completa de lo que se creara (nunca se corta).
+    if plan["canales"]:
+        lineas.append(f"🆕 **Se creará ({len(plan['canales'])}):**")
+        for categoria, nombre in plan["canales"]:
+            lineas.append(f"• {nombre} → {categoria}")
+    else:
+        lineas.append("🆕 **Se creará (0):** ningún canal")
     lineas.append(
         f"👥 **Roles que crearía ({len(plan['roles'])}):** "
         + (", ".join(plan["roles"]) if plan["roles"] else "ninguno")
@@ -1353,33 +1664,56 @@ async def vista_previa_setup(ctx):
         f"📁 **Categorías que crearía ({len(plan['categorias'])}):** "
         + (", ".join(plan["categorias"]) if plan["categorias"] else "ninguna")
     )
-    if plan["canales"]:
-        lineas.append(f"💬 **Canales que crearía ({len(plan['canales'])}):**")
-        for categoria, nombre, en_otra in plan["canales"]:
-            nota = " ⚠️ ya existe un canal con ese nombre en otra categoría" if en_otra else ""
-            lineas.append(f"• {nombre} → {categoria}{nota}")
-    else:
-        lineas.append("💬 **Canales que crearía (0):** ninguno")
-    lineas.append("🔐 **Permisos que reconfiguraría:**")
-    lineas.extend(permisos_setup(guild))
+    for categoria in plan["categorias_omitidas"]:
+        lineas.append(f"⏭️ {categoria} — categoría omitida: sus canales ya existen")
     if plan["categorias"]:
         lineas.append(
-            f"\n⚠️ **Va a crear {len(plan['categorias'])} categoría(s)** "
-            f"({', '.join(plan['categorias'])}). Probablemente ya existen con otro nombre "
-            "(se renombraron): revisa antes de confirmar para no duplicarlas."
+            f"⚠️ **Va a crear {len(plan['categorias'])} categoría(s)** "
+            f"({', '.join(plan['categorias'])}): no las encontré ni por ID ni por nombre."
         )
+    lineas.append("🔐 **Permisos que reconfiguraría:**")
+    lineas.extend(permisos_setup(guild))
     if not (plan["roles"] or plan["categorias"] or plan["canales"]):
-        lineas.append("\n✅ No falta nada: !setup solo reconfiguraría los permisos de arriba.")
-    descripcion = "\n".join(lineas)
-    if len(descripcion) > 4000:
-        descripcion = descripcion[:3990] + "\n…"
-    embed = discord.Embed(
-        title="🔍 Vista previa de !setup — no se creó nada",
-        description=descripcion,
-        colour=discord.Colour(0xF1C40F),
-    )
-    embed.set_footer(text="Para ejecutarlo: !setup confirmar")
-    await ctx.send(embed=embed)
+        lineas.append("✅ No falta nada: !setup solo reconfiguraría los permisos de arriba.")
+
+    # Resumen de lo que ya existe (conteo por categoria). Es la unica parte que se corta.
+    por_categoria = {}
+    for _nombre, categoria in plan["existentes"]:
+        por_categoria[categoria] = por_categoria.get(categoria, 0) + 1
+    resumen = []
+    if por_categoria:
+        resumen.append(f"✅ **Ya existe, no se toca ({len(plan['existentes'])}):**")
+        for categoria, total in por_categoria.items():
+            resumen.append(f"• {categoria}: {total} {'canal' if total == 1 else 'canales'}")
+
+    # Si la parte fija supera el limite de un embed, se reparte en varios; el
+    # resumen va al final del ultimo y solo el se recorta.
+    limite = 4000
+    bloques, actual = [], ""
+    for linea in lineas:
+        if actual and len(actual) + 1 + len(linea) > limite:
+            bloques.append(actual)
+            actual = linea
+        else:
+            actual = f"{actual}\n{linea}" if actual else linea
+    if resumen:
+        texto_resumen = "\n".join(resumen)
+        espacio = limite - len(actual) - 1
+        if len(texto_resumen) > espacio:
+            texto_resumen = texto_resumen[:max(espacio - 2, 0)] + "\n…" if espacio > 2 else ""
+        if texto_resumen:
+            actual = f"{actual}\n{texto_resumen}"
+    bloques.append(actual)
+
+    for i, descripcion in enumerate(bloques):
+        embed = discord.Embed(
+            title="🔍 Vista previa de !setup — no se creó nada",
+            description=descripcion,
+            colour=discord.Colour(0xF1C40F),
+        )
+        if i == len(bloques) - 1:
+            embed.set_footer(text="Para ejecutarlo: !setup confirmar")
+        await ctx.send(embed=embed)
 
 
 @bot.command(name="setup")
@@ -1410,12 +1744,14 @@ async def setup(ctx, confirmar: str = None):
 
     n_can = 0
     for bloque in ESTRUCTURA:
-        cat = discord.utils.get(guild.categories, name=bloque["categoria"])
-        if not cat:
-            cat = await guild.create_category(bloque["categoria"])
+        cat = buscar_categoria_bloque(guild, bloque)
         for nombre_canal, tipo in bloque["canales"]:
-            if discord.utils.get(cat.channels, name=nombre_canal):
+            # Si existe en cualquier categoria no se crea ni se mueve.
+            if buscar_canal_en_servidor(guild, nombre_canal) is not None:
                 continue
+            # La categoria solo se crea cuando hace falta crear algun canal en ella.
+            if cat is None:
+                cat = await guild.create_category(bloque["categoria"])
             if tipo == "voice":
                 await guild.create_voice_channel(nombre_canal, category=cat)
             else:
@@ -1427,6 +1763,27 @@ async def setup(ctx, confirmar: str = None):
     await configurar_canal_steam(ctx)
     await configurar_canal_modloader(ctx)
     await configurar_canales_recompensa(ctx)
+    await configurar_canal_transcripciones(ctx)
+    await configurar_canal_soporte(ctx)
+
+
+async def configurar_canal_soporte(ctx):
+    """Deja el canal de soporte solo-lectura para @everyone (solo el bot escribe):
+    los miembros usan el boton del panel, no escriben ahi."""
+    guild = ctx.guild
+    canal = buscar_canal(guild, CANAL_SOPORTE)
+    if canal is None:
+        return
+    try:
+        await canal.set_permissions(
+            guild.default_role, send_messages=False, add_reactions=False
+        )
+        await canal.set_permissions(guild.me, send_messages=True)
+    except discord.Forbidden:
+        await ctx.send(
+            f"⚠️ No pude ajustar permisos de {canal.mention}. "
+            "Revisa que mi rol esté arriba y tenga Gestionar canales."
+        )
 
 
 async def configurar_canal_steam(ctx):
@@ -1517,6 +1874,27 @@ async def configurar_canales_recompensa(ctx):
                 f"⚠️ No pude ajustar permisos de {canal.mention}. "
                 "Revisa que mi rol esté arriba y tenga Gestionar canales."
             )
+
+
+async def configurar_canal_transcripciones(ctx):
+    """Oculta el canal de transcripciones de tickets para @everyone y lo deja
+    visible solo para ROLES_STAFF_TICKETS (y el bot)."""
+    guild = ctx.guild
+    canal = buscar_canal(guild, CANAL_TRANSCRIPCIONES)
+    if canal is None:
+        return
+    try:
+        await canal.set_permissions(guild.default_role, view_channel=False)
+        for rol in roles_staff_tickets(guild):
+            await canal.set_permissions(rol, view_channel=True, read_message_history=True)
+        await canal.set_permissions(
+            guild.me, view_channel=True, send_messages=True, attach_files=True
+        )
+    except discord.Forbidden:
+        await ctx.send(
+            f"⚠️ No pude ajustar permisos de {canal.mention}. "
+            "Revisa que mi rol esté arriba y tenga Gestionar canales."
+        )
 
 
 async def configurar_nsfw(ctx) -> bool:
@@ -1745,6 +2123,40 @@ async def panelroles(ctx):
 
 @panelroles.error
 async def panelroles_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
+#  COMANDO: PANELTICKETS (publica el panel de soporte con el boton "Abrir ticket")
+# =====================================================================
+@bot.command(name="paneltickets")
+@commands.has_permissions(administrator=True)
+async def paneltickets(ctx):
+    guild = ctx.guild
+    canal = buscar_canal(guild, CANAL_SOPORTE) or ctx.channel
+    await configurar_canal_soporte(ctx)
+    embed = discord.Embed(
+        title="🎫 Soporte",
+        description=(
+            "¿Necesitas hablar en privado con el staff? Pulsa **🎫 Abrir ticket** y se "
+            "creará un canal solo para ti y el staff.\n\n"
+            "Solo puedes tener un ticket abierto a la vez."
+        ),
+        colour=discord.Colour(0x5865F2),
+    )
+    # Al editar se vuelve a pasar PanelTickets(): el custom_id no cambia.
+    mensaje, editado = await publicar_o_editar_fijo(
+        guild, canal, "panel_tickets", embed, view=PanelTickets()
+    )
+    accion = "editado" if editado else "publicado"
+    await ctx.send(f"✅ Panel de tickets {accion} en {mensaje.channel.mention}")
+
+
+@paneltickets.error
+async def paneltickets_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ Necesitas ser Administrador.")
     else:
@@ -3453,6 +3865,7 @@ AYUDA_SECCIONES = [
         ("reglas", "`!reglas` — publica o actualiza las reglas", None),
         ("info", "`!info` — publica o actualiza la guía de inicio", None),
         ("panelroles", "`!panelroles` — publica o actualiza el panel de roles con botones", None),
+        ("paneltickets", "`!paneltickets` — publica o actualiza el panel de tickets de soporte", None),
         ("presentaciones", "`!presentaciones` — publica o actualiza la plantilla de presentación", None),
         ("anuncio", "`!anuncio <texto>` — publica un anuncio", None),
         ("panelcochipuerco", "`!panelcochipuerco` — publica el panel del rol +18 y configura NSFW", None),

@@ -10,6 +10,7 @@ estructura del servidor y añade funciones de comunidad, moderación y niveles.
 - **Panel de roles** con botones (plataforma, región y avisos) y rol +18 por reacción.
 - **Niveles/XP** con ranking, recompensas por nivel y **Activo del mes**.
 - **Moderación**: borrar, kick, ban, mute, warns.
+- **Tickets de soporte** privados con el staff, con transcripción al cerrar.
 - **Utilidades**: encuestas, sugerencias, perfiles de Steam y búsqueda de partida (`!jugar` con botón «Me apunto»).
 - **Avisos de releases** del L4D2 Versus Addon Manager vía webhook HTTP.
 
@@ -72,6 +73,19 @@ tope de **6 horas por día** por persona (día en UTC-5): al llegar, ese día ya
 A las **50 horas** acumuladas se gana **🎧 Voz activa** (con anuncio en logros; permanente).
 `!perfil` muestra tu tiempo en voz, el progreso hacia el rango y lo contado hoy.
 
+### 🎫 Tickets de soporte
+
+`!paneltickets` publica un panel con el botón **🎫 Abrir ticket**. Cada usuario puede
+tener **un ticket abierto**: el bot crea `ticket-<nombre>` en la categoría **🎫 TICKETS**
+(la crea si falta), visible solo para esa persona y el staff (`ROLES_STAFF_TICKETS`: EITO LA GOAT,
+DEVELOPER, Admins y Moderador, por ID), y los menciona con un botón **🔒 Cerrar ticket**.
+El dueño se guarda en el topic del canal (`ticket:<id>`), sin tablas nuevas. Cerrarlo
+(solo el dueño o el staff) guarda una transcripción `.txt` (fecha, autor, contenido y
+URLs de adjuntos) en **📁・tickets-log** (categoría 🛡️ STAFF, visible solo para el staff de
+tickets), avisa, espera 5 segundos y borra el canal. Si no puede guardar la transcripción,
+el ticket no se cierra. Los botones sobreviven a los reinicios. El bot necesita
+**Gestionar canales**.
+
 ### 🏅 Logros
 
 Los logros se anuncian en el canal **🏅・logros** (lo creas tú a mano; si no existe se
@@ -132,6 +146,7 @@ según tus permisos.
 - `!reglas` — publica las reglas; si ya existe el mensaje, lo **edita** en vez de duplicarlo
 - `!info` (alias `!guia`) — publica o edita la guía de inicio
 - `!panelroles` — publica o edita el panel de roles con botones (los botones siguen funcionando)
+- `!paneltickets` — publica o edita el panel de soporte con el botón **Abrir ticket** en `🎫・soporte` (o en el canal actual si no existe)
 - `!presentaciones` — publica o edita la plantilla de presentación
 - `!anuncio <texto>` — publica un anuncio (permiso *Gestionar servidor*: también lo pueden usar los admins y el staff con ese permiso)
 - `!panelcochipuerco` — publica el panel del rol +18 y configura el acceso NSFW
