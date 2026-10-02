@@ -213,6 +213,21 @@ El bot guarda todo en **PostgreSQL** (`DATABASE_URL`), separado por servidor
 - `config_servidor` — configuración por servidor (panel +18)
 - `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles, panel de tickets y presentaciones (para editarlos)
 
+## 🧪 Pruebas
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest -q
+```
+
+Las pruebas (`tests/`) importan el bot con objetos falsos: **no se conectan a Discord ni a
+ninguna base de datos** y ignoran tu `.env`. Cubren menciones, fechas y XP, tickets,
+webhook, guardas y arranque. Las de PostgreSQL real (`@pytest.mark.db`, `tests/test_db.py`)
+se saltan salvo que definas `TEST_DATABASE_URL` con una base de pruebas.
+
+GitHub Actions (`.github/workflows/ci.yml`) corre en cada push y pull request, con
+Python 3.12: `py_compile` de `eito_setup_bot.py` y `database.py` y `pytest -q`.
+
 ## 🔒 Seguridad
 
 - El token y las credenciales van en `.env` o en las variables del hosting,

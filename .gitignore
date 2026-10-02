@@ -23,3 +23,6 @@ ENV/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# --- Pruebas ---
+.pytest_cache/
