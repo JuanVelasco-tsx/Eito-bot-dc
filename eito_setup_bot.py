@@ -407,6 +407,23 @@ bot = commands.Bot(
     ),
 )
 
+MENSAJE_SOLO_SERVIDOR = "Este comando solo funciona en un servidor, no por mensaje privado."
+
+
+async def solo_en_servidor(ctx):
+    """Check global: ningun comando se ejecuta en mensajes privados (casi todos
+    usan ctx.guild y fallarian con un error confuso)."""
+    if ctx.guild is not None:
+        return True
+    # Los comandos con manejador .error propio ya responden (con str(error), que
+    # es este mismo texto); sin manejador nadie mas contestaria al usuario.
+    if ctx.command is None or not ctx.command.has_error_handler():
+        await ctx.send(f"❌ {MENSAJE_SOLO_SERVIDOR}")
+    raise commands.NoPrivateMessage(MENSAJE_SOLO_SERVIDOR)
+
+
+bot.add_check(solo_en_servidor)
+
 
 
 # =====================================================================
@@ -2325,6 +2342,11 @@ async def anuncio_error(ctx, error):
 # =====================================================================
 #  COMANDO: DARNIVEL (asigna un nivel exacto a un miembro, solo testing)
 # =====================================================================
+# Tope de !darnivel: la XP se calcula con un bucle O(nivel) que bloquearia el bot
+# con un numero enorme.
+NIVEL_MAX_DARNIVEL = 200
+
+
 @bot.command(name="darnivel")
 @commands.has_permissions(administrator=True)
 async def darnivel(ctx, nivel: int, miembro: discord.Member = None):
@@ -2335,6 +2357,9 @@ async def darnivel(ctx, nivel: int, miembro: discord.Member = None):
     miembro = miembro or ctx.author
     if nivel < 0:
         await ctx.send("❌ El nivel debe ser 0 o mayor.")
+        return
+    if nivel > NIVEL_MAX_DARNIVEL:
+        await ctx.send(f"❌ El nivel máximo es {NIVEL_MAX_DARNIVEL}.")
         return
 
     gid = str(ctx.guild.id)
