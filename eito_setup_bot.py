@@ -332,7 +332,7 @@ def construir_guia(guild):
         "**🕹️ ¿Buscas partida?**\n"
         f"Escribe `!jugar` en {canal_txt('🤖・comandos')} y avisará a todos los que "
         f"tienen 🔔 Avisos de partida (actívalo en {canal_txt(CANAL_ROLES)}). "
-        "Las salas de voz para Versus y Campaña están en 🔊 PA JUGARR.\n\n"
+        "Las salas de voz para Versus y Campaña están en la categoría 🔊 GAMING.\n\n"
 
         "**🎭 Tus roles**\n"
         f"En {canal_txt(CANAL_ROLES)} eliges plataforma, región, avisos de partida "
