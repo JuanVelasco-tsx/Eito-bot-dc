@@ -87,6 +87,8 @@ ROL_LEFTSITO = "Leftsito"
 
 CANAL_MODLOADER = "🔧・l4d2-mod-loader"
 ROL_MODLOADER = "🔔 Mod Loader"
+# Descarga del L4D2 Versus Addon Manager (la muestra el mensaje de presentacion del canal).
+MODLOADER_URL = "https://www.mediafire.com/file/d512mqnuww1co2v/L4D2+Versus+Addon+Manager_v1.0.0-beta.exe/file"
 
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
 ROL_AUTOMATICO = "1544900113716084736"
@@ -475,7 +477,7 @@ async def handle_release_webhook(request):
                 break
         if canal is None:
             return web.json_response(
-                {"error": f"No se encontro el canal {CANAL_MODLOADER}. Corre !setup primero."},
+                {"error": f"No se encontro el canal {CANAL_MODLOADER}. Avisa a un admin."},
                 status=500)
 
     rol = discord.utils.get(canal.guild.roles, name=ROL_MODLOADER) if canal.guild else None
@@ -1388,7 +1390,7 @@ async def ticket_cerrar(interaction):
         if canal_log is None:
             await interaction.followup.send(
                 f"⚠️ No encuentro {CANAL_TRANSCRIPCIONES}, así que no cierro el ticket "
-                "(se perdería la transcripción). Avisa a un admin: debe correr `!setup confirmar`.",
+                "(se perdería la transcripción). Avisa a un admin.",
                 ephemeral=True,
             )
             return
@@ -1922,7 +1924,7 @@ async def configurar_canal_modloader(ctx):
             description=(
                 "Gestiona tus addons de la Workshop para jugar Versus con "
                 "varios combinados a la vez, sin reempaquetar VPKs a mano.\n\n"
-                "📥 **Descarga:** https://www.mediafire.com/file/d512mqnuww1co2v/L4D2+Versus+Addon+Manager_v1.0.0-beta.exe/file\n\n"
+                f"📥 **Descarga:** {MODLOADER_URL}\n\n"
                 f"Activá el rol **Avisos Mod Loader** en {CANAL_ROLES} para "
                 "que te avise apenas salga una actualización nueva."
             ),
@@ -2033,7 +2035,7 @@ async def setup_error(ctx, error):
 async def setupsteam(ctx):
     canal = buscar_canal(ctx.guild, CANAL_STEAM)
     if canal is None:
-        await ctx.send(f"⚠️ No encuentro {CANAL_STEAM}. Corre !setup primero.")
+        await ctx.send(f"⚠️ No encuentro {CANAL_STEAM}. Avisa a un admin.")
         return
     await configurar_canal_steam(ctx)
     await ctx.send(f"✅ Canal {canal.mention} configurado como solo-bot.")
@@ -2130,7 +2132,7 @@ async def reglas(ctx):
     guild = ctx.guild
     canal = discord.utils.get(guild.text_channels, name=CANAL_REGLAS)
     if canal is None:
-        await ctx.send(f"⚠️ No encuentro el canal {CANAL_REGLAS}. Corre !setup primero.")
+        await ctx.send(f"⚠️ No encuentro el canal {CANAL_REGLAS}. Avisa a un admin.")
         return
     embed = discord.Embed(
         description=construir_reglas(guild),
@@ -2185,7 +2187,7 @@ async def panelroles(ctx):
     guild = ctx.guild
     canal = discord.utils.get(guild.text_channels, name=CANAL_ROLES)
     if canal is None:
-        await ctx.send(f"⚠️ No encuentro el canal {CANAL_ROLES}. Corre !setup primero.")
+        await ctx.send(f"⚠️ No encuentro el canal {CANAL_ROLES}. Avisa a un admin.")
         return
     embed = discord.Embed(
         title="🎭 Elige tus roles",
@@ -2253,7 +2255,7 @@ async def presentaciones(ctx):
     canal = discord.utils.get(guild.text_channels, name=CANAL_PRESENTACIONES)
     if canal is None:
         await ctx.send(
-            f"⚠️ No encuentro el canal {CANAL_PRESENTACIONES}. Corre !setup primero."
+            f"⚠️ No encuentro el canal {CANAL_PRESENTACIONES}. Avisa a un admin."
         )
         return
     embed = discord.Embed(
@@ -2300,7 +2302,7 @@ async def anuncio(ctx, *, texto: str):
         return
     canal = discord.utils.get(guild.text_channels, name=CANAL_ANUNCIOS)
     if canal is None:
-        await ctx.send(f"⚠️ No encuentro el canal {CANAL_ANUNCIOS}. Corre !setup primero.")
+        await ctx.send(f"⚠️ No encuentro el canal {CANAL_ANUNCIOS}. Avisa a un admin.")
         return
     if ping is not None and not canal.permissions_for(ctx.author).mention_everyone:
         await ctx.send("❌ Necesitas el permiso Mencionar @everyone para anunciar con ping.")
@@ -3204,7 +3206,7 @@ async def steam(ctx, *, entrada: str):
     canal = buscar_canal(ctx.guild, CANAL_STEAM)
     if canal is None:
         await ctx.send(
-            f"⚠️ No encuentro el canal {CANAL_STEAM}. Un admin debe correr !setup."
+            f"⚠️ No encuentro el canal {CANAL_STEAM}. Avisa a un admin."
         )
         return
 
@@ -3583,7 +3585,7 @@ async def jugar(ctx, *, mensaje: str = ""):
     rol = discord.utils.get(guild.roles, name=ROL_LEFTSITO)
     if rol is None:
         await ctx.send(
-            f"⚠️ No existe el rol {ROL_LEFTSITO}. Un admin debe correr !setup."
+            f"⚠️ No existe el rol {ROL_LEFTSITO}. Avisa a un admin."
         )
         return
 

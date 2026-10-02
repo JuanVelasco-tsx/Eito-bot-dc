@@ -78,12 +78,15 @@ A las **50 horas** acumuladas se gana **🎧 Voz activa** (con anuncio en logros
 `!paneltickets` publica un panel con el botón **🎫 Abrir ticket**. Cada usuario puede
 tener **un ticket abierto**: el bot crea `ticket-<nombre>` en la categoría **🎫 TICKETS**
 (la crea si falta), visible solo para esa persona y el staff (`ROLES_STAFF_TICKETS`: EITO LA GOAT,
-DEVELOPER, Admins y Moderador, por ID), y los menciona con un botón **🔒 Cerrar ticket**.
-El dueño se guarda en el topic del canal (`ticket:<id>`), sin tablas nuevas. Cerrarlo
+DEVELOPER, Admins y Moderador, por ID). El mensaje de bienvenida, con el botón **🔒 Cerrar ticket**,
+menciona al usuario y **solo a Admins y Moderador** (`ROLES_PING_TICKETS`); EITO LA GOAT y DEVELOPER
+ven el ticket pero no reciben ping. El dueño se guarda en el topic del canal (`ticket:<id>`), sin tablas nuevas. Cerrarlo
 (solo el dueño o el staff) guarda una transcripción `.txt` (fecha, autor, contenido y
 URLs de adjuntos) en **📁・tickets-log** (categoría 🛡️ STAFF, visible solo para el staff de
 tickets), avisa, espera 5 segundos y borra el canal. Si no puede guardar la transcripción,
-el ticket no se cierra. Los botones sobreviven a los reinicios. El bot necesita
+el ticket no se cierra. Tampoco se cierra (ni se envía nada) si @everyone puede ver el canal de
+transcripciones: avisa en el ticket y lo registra en el canal de registros. `!paneltickets` y
+`!setup confirmar` reconfiguran los permisos de `🎫・soporte` (solo lectura) y de `📁・tickets-log`. Los botones sobreviven a los reinicios. El bot necesita
 **Gestionar canales**.
 
 ### 🏅 Logros
@@ -136,11 +139,12 @@ El Activo del mes sigue anunciándose en el canal de niveles.
 
 ## 📖 Comandos
 
-Todos usan el prefijo `!`. Escribe `!ayuda` en el servidor para ver la lista
+Todos usan el prefijo `!` y **solo funcionan en un servidor**: por mensaje privado el
+bot responde que no están disponibles. Escribe `!ayuda` en el servidor para ver la lista
 según tus permisos.
 
 ### Administración (solo admins)
-- `!setup [confirmar]` — sin argumento solo muestra una **vista previa** (qué roles, categorías y canales crearía y qué permisos reconfiguraría; avisa con ⚠️ si va a crear categorías, porque quizá ya existen con otro nombre). Con `!setup confirmar` crea lo que falta
+- `!setup [confirmar]` — sin argumento solo muestra una **vista previa**: lista completa de lo que se **creará**, las categorías omitidas (sus canales ya existen), un resumen por categoría de lo que **ya existe** y los permisos que reconfiguraría. Las categorías se buscan por ID y luego por nombre; un canal que ya existe en cualquier categoría no se crea ni se mueve. Con `!setup confirmar` crea lo que falta
 - `!setupsteam` — reconfigura el canal de perfiles de Steam (solo-bot)
 - `!setuprecompensas` — reconfigura los canales de recompensa por nivel
 - `!reglas` — publica las reglas; si ya existe el mensaje, lo **edita** en vez de duplicarlo
@@ -161,7 +165,7 @@ según tus permisos.
 - `!fundadores [confirmar]` — asigna el rol Fundador a los 100 miembros más antiguos.
   Solo el dueño o un DEVELOPER. Sin `confirmar` muestra una vista previa; con
   `confirmar` guarda la lista y da el rol. Si ya se asignó, rechaza el comando.
-- `!darnivel <nivel> [@usuario]` — asigna un nivel exacto. **Solo para pruebas**:
+- `!darnivel <nivel> [@usuario]` — asigna un nivel exacto (máximo 200). **Solo para pruebas**:
   se bloquea en el servidor definido en `EITO_GUILD_ID` (EITO).
 
 ### Moderación
@@ -191,7 +195,9 @@ según tus permisos.
 
 `POST /release-webhook` con la cabecera `Authorization: Bearer <RELEASE_WEBHOOK_SECRET>`
 y un JSON `{"version": "1.2.0", "changelog": "..."}` publica un aviso y menciona
-al rol **🔔 Mod Loader**. `GET /` responde un health check.
+al rol **🔔 Mod Loader**. El body debe ser un objeto JSON y `version` y `changelog` deben
+ser texto (si no, responde 400); el título se recorta a 256 caracteres y la descripción
+a 4096. El secreto se compara en tiempo constante. `GET /` responde un health check.
 
 ## 🗂️ Datos
 
@@ -205,10 +211,18 @@ El bot guarda todo en **PostgreSQL** (`DATABASE_URL`), separado por servidor
 - `lfg_posts` y `lfg_participantes` — convocatorias de `!jugar` y sus apuntados
 - `user_warns` — avisos de moderación
 - `config_servidor` — configuración por servidor (panel +18)
-- `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles y presentaciones (para editarlos)
+- `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles, panel de tickets y presentaciones (para editarlos)
 
 ## 🔒 Seguridad
 
 - El token y las credenciales van en `.env` o en las variables del hosting,
   **nunca** en el código ni en el repo.
 - `.gitignore` protege el `.env`.
+- **Protección global de menciones:** el bot se crea con `allowed_mentions` sin `@everyone`/`@here`
+  ni roles (solo usuarios), así que ningún mensaje —por ejemplo una razón de `!warn` con
+  `@everyone`— puede pinguear de forma masiva. Los envíos que sí deben mencionar algo lo piden
+  explícitamente: `!jugar` (rol Leftsito), el webhook de releases (rol Mod Loader),
+  `!anuncio everyone|here` (solo con el permiso *Mencionar @everyone*) y la bienvenida de
+  los tickets (Admins y Moderador).
+- La conexión a la base de datos usa `pool_pre_ping` y `pool_recycle=1800` para no fallar con
+  conexiones cortadas por inactividad.
