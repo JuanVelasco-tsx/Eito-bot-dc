@@ -486,6 +486,20 @@ async def start_web_server():
     print(f"\U0001f310 Servidor web escuchando en 0.0.0.0:{WEBHOOK_PORT}")
 
 
+# Referencia a la tarea del servidor web (la crea setup_hook).
+tarea_web = None
+
+
+def _avisar_si_falla_el_servidor_web(tarea):
+    """Callback de la tarea del servidor web: imprime el error si no pudo arrancar."""
+    if tarea.cancelled():
+        return
+    error = tarea.exception()
+    if error is not None:
+        print(f"⚠️ El servidor web no pudo arrancar (puerto {WEBHOOK_PORT}); "
+              f"el webhook de releases no funcionará: {error!r}")
+
+
 @bot.event
 async def setup_hook():
     """Se ejecuta antes de on_ready, cuando el loop de asyncio ya esta corriendo."""
@@ -498,16 +512,25 @@ async def setup_hook():
     # Las tablas se crean ANTES de arrancar cualquier loop o registrar vistas: los
     # loops consultan la BD apenas arrancan y, en el primer deploy con tablas
     # nuevas, fallarian con "relation ... does not exist". Si falla, se avisa y el
-    # bot arranca igual (on_ready y los before_loop lo reintentan; crear_tablas
-    # solo hace el trabajo una vez por proceso).
+    # bot arranca igual (on_ready y los before_loop de premiar_activo_mes y
+    # cerrar_convocatorias_vencidas lo reintentan; actualizar_rangos y contar_voz
+    # no; crear_tablas solo hace el trabajo una vez por proceso).
     try:
         await crear_tablas()
     except Exception:
         print("⚠️ crear_tablas() falló en setup_hook; el bot arranca igual:")
         traceback.print_exc()
-    bot.loop.create_task(start_web_server())
-    # Vista persistente de las convocatorias de !jugar (botones con custom_id fijo)
+    # Se guarda la referencia (si no, el recolector podria descartar la tarea) y se
+    # avisa si el servidor web no consigue arrancar (p. ej. puerto ocupado).
+    global tarea_web
+    tarea_web = asyncio.create_task(start_web_server())
+    tarea_web.add_done_callback(_avisar_si_falla_el_servidor_web)
+    # Vistas persistentes (botones con custom_id fijo). Se registran aqui, no en
+    # on_ready, para que sigan vivas aunque falle la BD y en cada reinicio.
     bot.add_view(LfgView())
+    bot.add_view(PanelRoles())
+    bot.add_view(PanelTickets())
+    bot.add_view(CerrarTicket())
     # Loops: SIEMPRE despues de crear_tablas() y add_view (cualquier loop nuevo va aqui)
     if not premiar_activo_mes.is_running():
         premiar_activo_mes.start()
@@ -1414,12 +1437,14 @@ class CerrarTicket(discord.ui.View):
 # =====================================================================
 @bot.event
 async def on_ready():
-    # Crear las tablas de la base de datos si todavia no existen
-    await crear_tablas()
-    # Registrar la vista persistente para que los botones funcionen tras reiniciar
-    bot.add_view(PanelRoles())
-    bot.add_view(PanelTickets())
-    bot.add_view(CerrarTicket())
+    # Reintenta crear las tablas si setup_hook no pudo. Si la BD sigue caida no se
+    # propaga: el resto de on_ready debe ejecutarse siempre. (Las vistas
+    # persistentes se registran en setup_hook.)
+    try:
+        await crear_tablas()
+    except Exception:
+        print("⚠️ crear_tablas() falló en on_ready; las tablas se reintentarán más tarde:")
+        traceback.print_exc()
     print(f"✅ Conectado como {bot.user}")
     # Lista real de comandos (la misma que usa !ayuda)
     for titulo, entradas in AYUDA_SECCIONES:
