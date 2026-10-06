@@ -13,6 +13,7 @@ Integracion en eito_setup_bot.py:
 """
 
 import os
+import traceback
 
 import discord
 from discord.ext import commands
@@ -23,9 +24,32 @@ from database import (
     quitar_usuario_permitido,
 )
 
+EDAD_MINIMA_POR_DEFECTO = 7
+
+
+def _leer_edad_minima() -> int:
+    """Lee EDAD_MINIMA_DIAS del entorno sin que un valor raro impida arrancar.
+
+    Sin variable o vacia -> 7; entero >= 0 -> ese valor (0 desactiva el filtro);
+    no numerica o negativa -> 7, con aviso en consola."""
+    crudo = os.getenv("EDAD_MINIMA_DIAS")
+    valor = (crudo or "").strip()
+    if not valor:
+        return EDAD_MINIMA_POR_DEFECTO
+    try:
+        dias = int(valor)
+    except ValueError:
+        dias = None
+    if dias is None or dias < 0:
+        print(f"⚠️ EDAD_MINIMA_DIAS={crudo!r} no es válido (debe ser un entero >= 0); "
+              f"se usa {EDAD_MINIMA_POR_DEFECTO}.")
+        return EDAD_MINIMA_POR_DEFECTO
+    return dias
+
+
 # Dias minimos de antiguedad de la cuenta de Discord para poder entrar.
 # Se cambia con la variable EDAD_MINIMA_DIAS en Railway, sin tocar codigo.
-EDAD_MINIMA_DIAS = int(os.getenv("EDAD_MINIMA_DIAS", "7"))
+EDAD_MINIMA_DIAS = _leer_edad_minima()
 
 
 class AntiMulticuentas(commands.Cog):
@@ -42,6 +66,11 @@ class AntiMulticuentas(commands.Cog):
     async def filtrar_miembro(self, member: discord.Member) -> bool:
         """Devuelve True si el miembro puede quedarse, False si no."""
         if member.bot:
+            return True
+
+        # 0 = filtro desactivado (explicito: con el reloj un poco desfasado una
+        # cuenta recien creada daria edad negativa y no pasaria el >=)
+        if EDAD_MINIMA_DIAS == 0:
             return True
 
         edad = discord.utils.utcnow() - member.created_at
@@ -185,5 +214,11 @@ class AntiMulticuentas(commands.Cog):
             # Va despues de MissingPermissions (que es subclase de CheckFailure):
             # aqui llega el check global solo_en_servidor cuando se usa por DM
             await ctx.send("❌ Este comando solo funciona en el servidor.")
+        elif isinstance(error, commands.CommandInvokeError):
+            # Fallo interno (p. ej. la BD caida): al usuario un mensaje generico,
+            # el detalle a consola (logs de Railway)
+            print(f"⚠️ Error en !{ctx.command.name}: {error.original!r}")
+            traceback.print_exception(error.original)
+            await ctx.send("❌ No pude completar la acción. Inténtalo de nuevo en un rato.")
         else:
             await ctx.send(f"❌ Error: {error}")

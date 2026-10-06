@@ -1,11 +1,18 @@
-"""Anti-multicuentas: integracion del cog en el bot (registro, on_member_join, DM)."""
+"""Anti-multicuentas: integracion del cog en el bot (registro, on_member_join, DM),
+lectura de EDAD_MINIMA_DIAS, filtro y errores internos de los comandos."""
 
+import os
+import subprocess
+import sys
 import types
+from datetime import timedelta
+from pathlib import Path
 
 import discord
 import pytest
 from discord.ext import commands
 
+import anti_multicuentas
 from anti_multicuentas import AntiMulticuentas
 
 
@@ -171,3 +178,121 @@ def test_ayuda_lista_permitir_y_despermitir_en_moderacion(mod):
     moderacion = dict(mod.AYUDA_SECCIONES)["🛡️ Moderación"]
     nombres = [nombre for nombre, _texto, _cond in moderacion]
     assert nombres[-2:] == ["permitir", "despermitir"]
+
+
+# --- EDAD_MINIMA_DIAS: nunca impide arrancar ----------------------------------------------
+@pytest.mark.parametrize("valor, esperado, avisa", [
+    (None, 7, False),       # sin variable
+    ("", 7, False),         # vacia
+    ("10", 10, False),
+    ("0", 0, False),        # 0 = filtro desactivado
+    ("-3", 7, True),        # negativa
+    ("7 dias", 7, True),    # no numerica
+])
+def test_leer_edad_minima(monkeypatch, capsys, valor, esperado, avisa):
+    if valor is None:
+        monkeypatch.delenv("EDAD_MINIMA_DIAS", raising=False)
+    else:
+        monkeypatch.setenv("EDAD_MINIMA_DIAS", valor)
+
+    assert anti_multicuentas._leer_edad_minima() == esperado
+
+    salida = capsys.readouterr().out
+    if avisa:
+        assert repr(valor) in salida  # el aviso muestra el valor recibido
+    else:
+        assert salida == ""
+
+
+def test_un_valor_invalido_no_impide_importar_el_modulo():
+    # Proceso aparte: importa el modulo desde cero, como al arrancar el bot en Railway
+    entorno = {**os.environ, "EDAD_MINIMA_DIAS": "7 dias", "PYTHONIOENCODING": "utf-8"}
+    resultado = subprocess.run(
+        [sys.executable, "-c", "import anti_multicuentas as m; print(m.EDAD_MINIMA_DIAS)"],
+        cwd=Path(__file__).resolve().parent.parent, env=entorno,
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+    assert resultado.stdout.strip().splitlines()[-1] == "7"
+
+
+# --- Filtro -------------------------------------------------------------------------------
+class Entrante:
+    """Miembro que acaba de entrar: registra DMs y expulsiones."""
+
+    def __init__(self, guild, edad):
+        self.guild, self.id, self.name, self.bot = guild, 8, "Recien", False
+        self.created_at = discord.utils.utcnow() - edad
+        self.dms, self.expulsado = [], False
+
+    def __str__(self):
+        return self.name
+
+    async def send(self, **kwargs):
+        self.dms.append(kwargs)
+
+    async def kick(self, reason=None):
+        self.expulsado = True
+
+
+@pytest.fixture
+def filtro(fakes, monkeypatch):
+    """Cog suelto (sin registrar) con la BD de permitidos y los logs parcheados."""
+    logs = []
+
+    async def registrar_log(guild, texto):
+        logs.append(texto)
+
+    async def no_permitido(*args):
+        return False
+
+    monkeypatch.setattr(anti_multicuentas, "es_usuario_permitido", no_permitido)
+    return AntiMulticuentas(bot=None, registrar_log=registrar_log), fakes.Guild(), logs
+
+
+async def test_con_edad_minima_7_una_cuenta_nueva_se_expulsa(filtro, monkeypatch):
+    cog, guild, logs = filtro
+    monkeypatch.setattr(anti_multicuentas, "EDAD_MINIMA_DIAS", 7)
+    miembro = Entrante(guild, timedelta(0))
+
+    assert await cog.filtrar_miembro(miembro) is False
+    assert miembro.expulsado and len(miembro.dms) == 1 and len(logs) == 1
+
+
+@pytest.mark.parametrize("edad", [
+    timedelta(0),             # cuenta de 0 dias
+    -timedelta(seconds=5),    # reloj del bot un poco por detras de Discord
+])
+async def test_con_edad_minima_0_todas_las_cuentas_pasan(filtro, monkeypatch, edad):
+    cog, guild, logs = filtro
+    monkeypatch.setattr(anti_multicuentas, "EDAD_MINIMA_DIAS", 0)
+    miembro = Entrante(guild, edad)
+
+    assert await cog.filtrar_miembro(miembro) is True
+    assert not miembro.expulsado and miembro.dms == [] and logs == []
+
+
+# --- Errores internos: mensaje generico al usuario, detalle a consola ---------------------
+async def test_si_la_bd_falla_en_permitir_no_se_muestra_el_error(mod, fakes, cog, monkeypatch, capsys):
+    secreto = "password authentication failed for user postgres"
+
+    async def bd_caida(*args):
+        raise ConnectionError(secreto)
+
+    async def buscar_usuario(user_id):
+        return fakes.Usuario(user_id, "Nuevo")
+
+    monkeypatch.setattr(anti_multicuentas, "permitir_usuario", bd_caida)
+    monkeypatch.setattr(cog, "_buscar_usuario", buscar_usuario)
+    comando = mod.bot.get_command("permitir")
+    ctx = fakes.Ctx(guild=fakes.Guild(), comando=comando)
+
+    # Como discord.py: la excepcion del callback llega envuelta en CommandInvokeError
+    with pytest.raises(ConnectionError) as error:
+        await comando.callback(cog, ctx, 123)
+    await cog.cog_command_error(ctx, commands.CommandInvokeError(error.value))
+
+    textos = [texto for texto, _kw in ctx.respuestas]
+    assert textos == ["❌ No pude completar la acción. Inténtalo de nuevo en un rato."]
+    assert not any(secreto in texto for texto in textos)
+    assert secreto in capsys.readouterr().out  # el detalle queda en los logs
