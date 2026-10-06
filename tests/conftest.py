@@ -135,6 +135,8 @@ class FakeCtx:
         self.guild, self.channel = guild, canal
         self.author = autor or FakeUsuario(1, "Mod")
         self.command = comando
+        # Como en discord.py: ctx.cog es el cog del comando (None si no tiene)
+        self.cog = getattr(comando, "cog", None)
         self.respuestas = []
 
         async def borrar():

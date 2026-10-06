@@ -192,6 +192,21 @@ class LfgParticipante(Base):
     user_id: Mapped[str] = mapped_column(String(32))
 
 
+class UsuarioPermitido(Base):
+    """Cuenta nueva autorizada por el staff con !permitir (anti-multicuentas):
+    puede entrar aunque no tenga la antiguedad minima."""
+
+    __tablename__ = "usuarios_permitidos"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "user_id", name="uq_usuarios_permitidos_guild_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(32))
+    user_id: Mapped[str] = mapped_column(String(32))
+    autorizado_por: Mapped[str] = mapped_column(String(100))
+
+
 # crear_tablas se llama desde on_ready y desde varios before_loop casi a la vez:
 # sin control, dos create_all concurrentes chocan (DuplicateTableError) cuando
 # hay una tabla nueva. Se ejecuta una sola vez por proceso.
@@ -696,3 +711,50 @@ async def contar_activo_del_mes(guild_id, user_id) -> int:
             .where(GanadorMes.guild_id == str(guild_id), GanadorMes.user_id == str(user_id))
         )
         return total or 0
+
+
+# =====================================================================
+#  HELPERS: USUARIOS PERMITIDOS (anti-multicuentas)
+# =====================================================================
+async def es_usuario_permitido(guild_id: str, user_id: str) -> bool:
+    """True si el usuario está en la lista de permitidos del servidor."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(UsuarioPermitido.id).where(
+                UsuarioPermitido.guild_id == str(guild_id),
+                UsuarioPermitido.user_id == str(user_id),
+            )
+        )
+        return resultado.first() is not None
+
+
+async def permitir_usuario(guild_id: str, user_id: str, autorizado_por: str) -> bool:
+    """Lo añade. Devuelve False si ya estaba (no lanzar error por el índice único)."""
+    async with SessionLocal() as session:
+        stmt = pg_insert(UsuarioPermitido).values(
+            guild_id=str(guild_id), user_id=str(user_id),
+            autorizado_por=str(autorizado_por)[:100],
+        )
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["guild_id", "user_id"]
+        ).returning(UsuarioPermitido.id)
+        resultado = await session.execute(stmt)
+        nuevo = resultado.first() is not None
+        await session.commit()
+        return nuevo
+
+
+async def quitar_usuario_permitido(guild_id: str, user_id: str) -> bool:
+    """Lo quita. Devuelve False si no estaba."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            delete(UsuarioPermitido)
+            .where(
+                UsuarioPermitido.guild_id == str(guild_id),
+                UsuarioPermitido.user_id == str(user_id),
+            )
+            .returning(UsuarioPermitido.id)
+        )
+        quitado = resultado.first() is not None
+        await session.commit()
+        return quitado

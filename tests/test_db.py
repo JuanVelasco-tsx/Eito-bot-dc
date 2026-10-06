@@ -51,3 +51,21 @@ async def test_top_xp_mensual_ordena_por_xp(guild_id):
     await database.add_xp_mensual(guild_id, "2", "2026-09", 80)
     await database.add_xp_mensual(guild_id, "3", "2026-08", 999)  # otro mes: no cuenta
     assert await database.top_xp_mensual(guild_id, "2026-09", 10) == [("2", 80), ("1", 50)]
+
+
+async def test_usuarios_permitidos(guild_id):
+    assert await database.es_usuario_permitido(guild_id, "1") is False
+    assert await database.permitir_usuario(guild_id, "1", "Mod") is True
+    assert await database.permitir_usuario(guild_id, "1", "Otro") is False  # ya estaba, sin error
+    assert await database.es_usuario_permitido(guild_id, "1") is True
+    assert await database.es_usuario_permitido(f"{guild_id}-otro", "1") is False  # por servidor
+    assert await database.quitar_usuario_permitido(guild_id, "1") is True
+    assert await database.quitar_usuario_permitido(guild_id, "1") is False
+    assert await database.es_usuario_permitido(guild_id, "1") is False
+
+
+async def test_permitir_usuario_concurrente_solo_lo_anade_una_vez(guild_id):
+    resultados = await asyncio.gather(*[
+        database.permitir_usuario(guild_id, "2", "Mod") for _ in range(5)
+    ])
+    assert resultados.count(True) == 1

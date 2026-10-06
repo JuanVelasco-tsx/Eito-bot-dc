@@ -21,8 +21,9 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt -r requirements-dev.txt
 
+      # Compila todos los .py del repo (los modulos nuevos entran solos), sin los entornos virtuales.
       - name: Compilar
-        run: python -m py_compile eito_setup_bot.py database.py
+        run: python -m compileall -q -x '(^|\W)\.?venv\W' .
 
       # Las pruebas con marker "db" se saltan solas: no hay servicio de Postgres todavia.
       - name: Pruebas

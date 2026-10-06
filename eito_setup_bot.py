@@ -14,6 +14,7 @@ import discord
 from aiohttp import web
 from discord.ext import commands, tasks
 
+from anti_multicuentas import AntiMulticuentas
 from database import (
     add_user_xp,
     add_warn,
@@ -418,8 +419,13 @@ async def solo_en_servidor(ctx):
     if ctx.guild is not None:
         return True
     # Los comandos con manejador .error propio ya responden (con str(error), que
-    # es este mismo texto); sin manejador nadie mas contestaria al usuario.
-    if ctx.command is None or not ctx.command.has_error_handler():
+    # es este mismo texto), y los de un cog con cog_command_error (como !permitir)
+    # con su propio mensaje; sin manejador nadie mas contestaria al usuario.
+    tiene_manejador = ctx.command is not None and (
+        ctx.command.has_error_handler()
+        or (ctx.cog is not None and ctx.cog.has_error_handler())
+    )
+    if not tiene_manejador:
         await ctx.send(f"❌ {MENSAJE_SOLO_SERVIDOR}")
     raise commands.NoPrivateMessage(MENSAJE_SOLO_SERVIDOR)
 
@@ -565,6 +571,10 @@ async def setup_hook():
     bot.add_view(PanelRoles())
     bot.add_view(PanelTickets())
     bot.add_view(CerrarTicket())
+    # Anti-multicuentas: filtro de edad de cuenta (lo usa on_member_join) y
+    # los comandos !permitir / !despermitir.
+    if bot.get_cog("AntiMulticuentas") is None:
+        await bot.add_cog(AntiMulticuentas(bot, registrar_log))
     # Loops: SIEMPRE despues de crear_tablas() y add_view (cualquier loop nuevo va aqui)
     if not premiar_activo_mes.is_running():
         premiar_activo_mes.start()
@@ -1608,6 +1618,12 @@ def embed_bienvenida(member):
 @bot.event
 async def on_member_join(member: discord.Member):
     """Da la bienvenida y asigna el rol automatico cuando entra alguien."""
+    # Anti-multicuentas: si la cuenta es demasiado nueva se expulsa y no recibe
+    # rol ni bienvenida.
+    cog = bot.get_cog("AntiMulticuentas")
+    if cog is not None and not await cog.filtrar_miembro(member):
+        return
+
     guild = member.guild
 
     # Rol automatico
@@ -3985,6 +4001,8 @@ AYUDA_SECCIONES = [
         # solo para quien puede ver los avisos de otros.
         ("warns", "`!warns [@usuario]` — muestra los avisos",
          lambda ctx: puede_ver_avisos_ajenos(getattr(ctx.author, "guild_permissions", None))),
+        ("permitir", "`!permitir <ID>` — deja entrar a una cuenta nueva legítima", None),
+        ("despermitir", "`!despermitir <ID>` — quita esa excepción", None),
     ]),
     ("📝 Publicar", [
         ("reglas", "`!reglas` — publica o actualiza las reglas", None),
