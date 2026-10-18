@@ -2084,6 +2084,52 @@ async def setuprecompensas_error(ctx, error):
 
 
 # =====================================================================
+#  COMANDO: CREARVCS (canales de voz de la votacion, en categorias existentes)
+# =====================================================================
+# (nombre del canal de voz, ID de su categoria). Las categorias se buscan solo
+# por ID y nunca se crean.
+VCS_VOTACION = [
+    ("⛏️ Sandbox", 1546647216155009097),
+    ("🎬 Cine y series", 1546637179046858855),
+]
+
+
+@bot.command(name="crearvcs")
+@commands.has_permissions(administrator=True)
+async def crearvcs(ctx):
+    guild = ctx.guild
+    lineas = []
+    for nombre, cat_id in VCS_VOTACION:
+        cat = guild.get_channel(cat_id)
+        if not isinstance(cat, discord.CategoryChannel):
+            lineas.append(f"⚠️ {nombre}: no existe la categoría con ID `{cat_id}`, no creo nada.")
+            continue
+        objetivo = _sin_selector_emoji(nombre)
+        if any(_sin_selector_emoji(c.name) == objetivo for c in cat.voice_channels):
+            lineas.append(f"⏭️ {nombre}: ya existe en **{cat.name}**, lo salto.")
+            continue
+        try:
+            # Sin overwrites: Discord sincroniza los permisos con los de la categoria.
+            canal = await guild.create_voice_channel(nombre, category=cat)
+        except discord.Forbidden:
+            lineas.append(f"⚠️ {nombre}: no tengo permisos para crear canales en **{cat.name}**.")
+        except discord.HTTPException as e:
+            print(f"⚠️ No pude crear {nombre} en {guild.name}: {e}")
+            lineas.append(f"⚠️ {nombre}: Discord rechazó la creación (revisa la consola del bot).")
+        else:
+            lineas.append(f"✅ {nombre}: creado en **{cat.name}** ({canal.mention}).")
+    await ctx.send("\n".join(lineas))
+
+
+@crearvcs.error
+async def crearvcs_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Necesitas ser Administrador.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
+
+
+# =====================================================================
 #  COMANDO: PANELCOCHIPUERCO (rol +18 con acceso a la categoría NSFW)
 # =====================================================================
 @bot.command(name="panelcochipuerco")
@@ -4017,6 +4063,7 @@ AYUDA_SECCIONES = [
         ("setup", "`!setup [confirmar]` — vista previa de lo que crearía; con `confirmar` crea canales, categorías y roles", None),
         ("setupsteam", "`!setupsteam` — reconfigura el canal de perfiles", None),
         ("setuprecompensas", "`!setuprecompensas` — reconfigura los canales de nivel", None),
+        ("crearvcs", "`!crearvcs` — crea los VCs de la votación (Sandbox, Cine y series) en sus categorías", None),
         ("importarniveles", "`!importarniveles <YYYY-MM> [confirmar]` — importa la XP de un mes desde los avisos de nivel", None),
         ("exportarserver", "`!exportarserver` — exporta roles y canales a JSON por DM (dueño o DEVELOPER)", None),
         ("darnivel", "`!darnivel <nivel> [@usuario]` — asigna un nivel exacto (solo en server de pruebas)", None),
