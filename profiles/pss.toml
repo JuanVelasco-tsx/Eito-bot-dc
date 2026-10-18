@@ -1,0 +1,387 @@
+# Perfil temporal de Phantom Shadows Studios (PSS) para el bot Eito.
+# Se activa con PSS_PROFILE_ENABLED=1. Guia completa: docs/phantom-shadows-studios.md
+#
+# PSS es un servidor PUBLICO para la comunidad: solo "🔒 Equipo" y "🛡️ Staff" son privados.
+#
+# Reglas de este archivo:
+#   - Cada recurso tiene una `key` estable (a-z, 0-9, _) que NO debe cambiar: es la clave del
+#     mapeo key -> ID de Discord en la tabla perfil_recursos.
+#   - Nada se borra jamas. Un recurso que ya existe solo se toca si lo marcas aqui
+#     (`adoptar`, `mover`, `sincronizar_permisos`) o si lo creo yo (entonces se mantiene al dia).
+#   - Estructura pequeña a proposito (12 canales de texto y 2 de voz). Lo demas esta COMENTADO como
+#     ejemplo: descomentalo cuando haga falta (y `!pss recargar` + `!pss plan`).
+#   - Tras editar: `!pss recargar` (en Railway, el archivo cambia con un deploy) y `!pss plan`.
+
+[perfil]
+nombre = "Phantom Shadows Studios"
+guild_id = 1420403964746268684
+owner_id = 668148837579227137      # solo verificacion; el dueño real es el del servidor
+gestores = []                      # keys de roles que pueden usar !pss ademas del dueño
+
+[eventos]
+xp = false                         # sin XP por mensajes ni subidas de nivel
+voz = false                        # sin XP ni contadores por voz
+anti_multicuentas = true           # servidor publico: se aplica el filtro de cuentas nuevas de EITO
+rol_al_entrar = "miembro"          # key del rol que se da al entrar
+bienvenida = "general"             # key del canal de bienvenida ("" = ninguno)
+canal_logs = "registros"           # key del canal de logs de moderacion (!kick, !ban, anti-multicuentas...)
+
+[comandos]
+# Comandos de EITO que crearian o publicarian estructura de EITO: no funcionan en PSS.
+bloquear = [
+  "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco",
+  "panelroles", "reglas", "info", "presentaciones", "paneltickets",
+]
+
+# =====================================================================
+#  ROLES (de arriba abajo)
+# =====================================================================
+[[roles]]
+key = "propietario"
+nombre = "Propietario"
+color = "#F1C40F"
+hoist = true
+permisos = []                      # sin administrator: solo color y separacion en la lista
+# Los roles nuevos se crean por debajo del bot: arrastra este a mano por encima del bot.
+
+[[roles]]
+key = "administrador"
+nombre = "Administrador"
+color = "#E74C3C"
+hoist = true
+permisos = [
+  "view_channel", "send_messages", "read_message_history", "embed_links", "attach_files",
+  "add_reactions", "manage_channels", "manage_roles", "manage_messages", "manage_guild",
+  "view_audit_log", "kick_members", "ban_members", "moderate_members", "mention_everyone",
+]
+
+[[roles]]
+key = "developer"
+nombre = "Developer"
+existing_id = 1561497283315638312
+# Se reutiliza tal cual. NO pongas adoptar = true: el bot le quitaria administrator.
+# RIESGO: mientras tenga administrator, quien lo reciba ignora todos los overrides.
+# Quitaselo a mano (ver "Pasos manuales en Discord" en la guia).
+
+[[roles]]
+key = "colaborador"
+nombre = "Colaborador"
+color = "#3498DB"
+hoist = true
+permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
+
+[[roles]]
+key = "miembro"
+nombre = "Miembro"
+color = "#2ECC71"
+permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
+
+# Especialidades autoasignables con botones (sin permisos).
+[[roles]]
+key = "scripter"
+nombre = "Scripter"
+color = "#9B59B6"
+mentionable = true
+autoasignable = true
+
+[[roles]]
+key = "builder"
+nombre = "Builder"
+color = "#E67E22"
+mentionable = true
+autoasignable = true
+
+[[roles]]
+key = "ui"
+nombre = "UI"
+color = "#1ABC9C"
+mentionable = true
+autoasignable = true
+
+# =====================================================================
+#  CATEGORIAS (solo Equipo y Staff son privadas)
+# =====================================================================
+[[categorias]]
+key = "cat_anuncios"
+nombre = "📢 Anuncios"
+orden = 1
+overrides = [                      # visible para todos, solo lectura para @everyone
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+  { objetivo = "developer", permitir = ["send_messages"] },
+  { objetivo = "administrador", permitir = ["send_messages"] },
+]
+
+[[categorias]]
+key = "cat_estudio"
+nombre = "📌 Estudio"
+orden = 2
+overrides = [                      # visible para todos, solo lectura para @everyone
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+  { objetivo = "developer", permitir = ["send_messages"] },
+  { objetivo = "administrador", permitir = ["send_messages"] },
+]
+
+[[categorias]]
+key = "cat_comunidad"
+nombre = "💬 Comunidad"
+orden = 3
+
+[[categorias]]
+key = "cat_desarrollo"
+nombre = "💻 Desarrollo"
+orden = 4                          # publica
+
+[[categorias]]
+key = "cat_roblox"
+nombre = "🟥 Roblox"
+orden = 5                          # publica
+
+[[categorias]]
+key = "cat_soporte"
+nombre = "🛠️ Soporte"
+orden = 6
+
+[[categorias]]
+key = "cat_voz"
+nombre = "🔊 Voz"
+orden = 7
+
+[[categorias]]
+key = "cat_equipo"
+nombre = "🔒 Equipo"
+orden = 8
+overrides = [                      # privada: el bot se añade solo un override propio
+  { objetivo = "@everyone", denegar = ["view_channel"] },
+  { objetivo = "developer", permitir = ["view_channel"] },
+  { objetivo = "colaborador", permitir = ["view_channel"] },
+  { objetivo = "administrador", permitir = ["view_channel"] },
+]
+
+[[categorias]]
+key = "cat_staff"
+nombre = "🛡️ Staff"
+orden = 9
+overrides = [
+  { objetivo = "@everyone", denegar = ["view_channel"] },
+  { objetivo = "propietario", permitir = ["view_channel"] },
+  { objetivo = "administrador", permitir = ["view_channel"] },
+]
+
+# =====================================================================
+#  CANALES (12 de texto + 2 de voz)
+# =====================================================================
+# --- Anuncios ---
+[[canales]]
+key = "anuncios"
+nombre = "anuncios"
+categoria = "cat_anuncios"
+tema = "Novedades y avisos oficiales del estudio."
+orden = 1
+
+# --- Estudio ---
+[[canales]]
+key = "reglas"
+nombre = "reglas"
+categoria = "cat_estudio"
+tema = "Información del estudio, normas y guía para empezar."
+orden = 1
+
+# --- Comunidad ---
+# Canales existentes: se mueven pero NO se adoptan (no se cambia su nombre ni tema) ni se
+# sincronizan (conservan sus permisos actuales, que son los de todos).
+[[canales]]
+key = "general"
+nombre = "general"
+categoria = "cat_comunidad"
+mover = true
+orden = 1
+
+[[canales]]
+key = "showcase"
+nombre = "showcase"
+categoria = "cat_comunidad"
+tema = "Enseña lo que estás haciendo: capturas, clips y proyectos propios."
+orden = 2
+
+[[canales]]
+key = "no_relacionado"
+nombre = "no-relacionado"
+categoria = "cat_comunidad"
+mover = true
+orden = 3
+
+# --- Desarrollo (publica) ---
+[[canales]]
+key = "frontend"
+nombre = "frontend"
+categoria = "cat_desarrollo"
+mover = true
+orden = 1
+
+[[canales]]
+key = "backend"
+nombre = "backend"
+categoria = "cat_desarrollo"
+mover = true
+orden = 2
+
+# --- Roblox (publica) ---
+[[canales]]
+key = "scripting_luau"
+nombre = "scripting-luau"
+categoria = "cat_roblox"
+tema = "Scripting en Luau."
+orden = 1
+
+# Ejemplos para cuando la comunidad crezca:
+# [[canales]]
+# key = "building_modelado"
+# nombre = "building-modelado"
+# categoria = "cat_roblox"
+# tema = "Construcción y modelado."
+# orden = 2
+#
+# [[canales]]
+# key = "ui_ux"
+# nombre = "ui-ux"
+# categoria = "cat_roblox"
+# orden = 3
+#
+# [[canales]]
+# key = "testing_qa"
+# nombre = "testing-qa"
+# categoria = "cat_roblox"
+# orden = 4
+#
+# [[canales]]
+# key = "ideas_roblox"
+# nombre = "ideas-roblox"
+# categoria = "cat_roblox"
+# orden = 5
+
+# --- Soporte ---
+# Se renombra a #ayuda (adoptar = true): `nombre_actual` es como se llama hoy, para encontrarlo.
+# Solo cambia el nombre (no se especifica tema). Si no quieres el cambio, quita adoptar y
+# nombre_actual y pon nombre = "deberes-ayuda".
+[[canales]]
+key = "ayuda"
+nombre = "ayuda"
+nombre_actual = "deberes-ayuda"
+categoria = "cat_soporte"
+mover = true
+adoptar = true
+orden = 1
+
+# --- Voz (publica) ---
+[[canales]]
+key = "voz_general"
+nombre = "🔊 General"
+tipo = "voice"
+categoria = "cat_voz"
+orden = 1
+
+# --- Equipo (privada: Developer, Colaborador y Administrador) ---
+# Existentes: se mueven aqui y se SINCRONIZAN con Equipo para que dejen de ser publicos.
+# Siguen sin adoptarse: no se cambia su nombre ni su tema.
+[[canales]]
+key = "info_importante"
+nombre = "info-importante"
+categoria = "cat_equipo"
+mover = true
+sincronizar_permisos = true
+orden = 1
+
+[[canales]]
+key = "planificacion_sesiones"
+nombre = "planificación-de-sesiones"
+categoria = "cat_equipo"
+mover = true
+sincronizar_permisos = true
+orden = 2
+
+# Voz privada del equipo (el canal de voz publico para la comunidad es "🔊 General", en Voz).
+[[canales]]
+key = "reuniones"
+nombre = "Reuniones"
+tipo = "voice"
+categoria = "cat_equipo"
+mover = true
+sincronizar_permisos = true
+orden = 3
+
+# TODO: un canal por proyecto activo, aqui en Equipo. La organización de GitHub no tiene
+# repositorios públicos (consulta del 2026-10-18), así que no hay ninguno que listar todavía.
+# [[canales]]
+# key = "proy_nombre_del_proyecto"
+# nombre = "nombre-del-proyecto"
+# categoria = "cat_equipo"
+# orden = 4
+
+# --- Staff (privada: solo Propietario y Administrador) ---
+[[canales]]
+key = "registros"
+nombre = "registros"
+categoria = "cat_staff"
+tema = "Registro de moderación del bot."
+orden = 1
+
+# [[canales]]
+# key = "staff_chat"
+# nombre = "staff-chat"
+# categoria = "cat_staff"
+# orden = 2
+
+# =====================================================================
+#  MENSAJES (los publica y mantiene el bot; las menciones no hacen ping)
+#  Todos en #reglas, en este orden: info del estudio, reglas, guia, especialidades.
+# =====================================================================
+[[mensajes]]
+key = "msg_info_estudio"
+canal = "reglas"
+titulo = "👻 Phantom Shadows Studios"
+descripcion = """Somos un estudio de desarrollo centrado en **Roblox** y otros proyectos tecnológicos.
+
+🔗 **GitHub:** https://github.com/Phantom-Shadows-Studios"""
+color = "#5865F2"
+
+[[mensajes]]
+key = "msg_reglas"
+canal = "reglas"
+titulo = "📜 Reglas"
+descripcion = """1️⃣ **Respeto ante todo.** Nada de insultos, acoso ni discriminación.
+2️⃣ **Sin spam ni publicidad.** Nada de enlaces sospechosos ni invitaciones a otros servidores sin permiso del staff.
+3️⃣ **No publiques código ni assets ajenos sin permiso** de su autor. Si algo no es tuyo, cita la fuente o no lo subas.
+4️⃣ **Usa cada canal para su tema:** dudas en {canal:ayuda}, tus trabajos en {canal:showcase}, charla libre en {canal:general} y {canal:no_relacionado}.
+5️⃣ **Respeta al staff.** Si no estás de acuerdo con una decisión, habla con ellos por privado.
+
+⚖️ Incumplir las reglas puede acabar en aviso, silencio, expulsión o baneo."""
+color = "#E74C3C"
+
+[[mensajes]]
+key = "msg_guia"
+canal = "reglas"
+titulo = "🧭 Guía para nuevos integrantes"
+descripcion = """¡Bienvenido/a! Para empezar:
+
+💬 Preséntate en {canal:general}.
+🎨 Enseña lo que haces en {canal:showcase}.
+💻 Programación en {canal:frontend} y {canal:backend}; Roblox en {canal:scripting_luau}.
+🛠️ ¿Dudas? Pregunta en {canal:ayuda}.
+🎭 Elige tus especialidades con los botones de abajo."""
+color = "#2ECC71"
+
+[[mensajes]]
+key = "msg_especialidades"
+canal = "reglas"
+titulo = "🎭 Tus especialidades"
+descripcion = "Pulsa un botón para darte o quitarte una especialidad."
+color = "#9B59B6"
+botones_roles = ["scripter", "builder", "ui"]
+
+# Proyectos activos: descomentar cuando haya proyectos que mostrar (y un canal para él,
+# p. ej. dentro de Estudio). No se publica texto de relleno.
+# [[mensajes]]
+# key = "msg_proyectos_activos"
+# canal = "reglas"
+# titulo = "📂 Proyectos activos"
+# descripcion = "..."

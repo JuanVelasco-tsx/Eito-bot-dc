@@ -68,6 +68,9 @@ WEBHOOK_PORT = int(os.getenv("PORT") or 8080)
 # --- SERVIDOR PRINCIPAL (si esta definido, !darnivel se bloquea en este server) ---
 EITO_GUILD_ID = (os.getenv("EITO_GUILD_ID") or "").strip()
 
+# --- PERFIL TEMPORAL "Phantom Shadows Studios" (se carga solo con PSS_PROFILE_ENABLED=1) ---
+PSS_PROFILE_ENABLED = os.getenv("PSS_PROFILE_ENABLED") == "1"
+
 # --- NOMBRES DE CANALES CLAVE (deben coincidir con los creados en el setup) ---
 CANAL_BIENVENIDA = "👋・bienvenida"
 CANAL_REGLAS = "📜・reglas"
@@ -433,6 +436,12 @@ async def solo_en_servidor(ctx):
 bot.add_check(solo_en_servidor)
 
 
+def evento_permitido(guild, evento):
+    """False si un perfil temporal (PSS) desactiva `evento` en este servidor."""
+    perfil = bot.get_cog("PerfilPSS")
+    return perfil is None or perfil.permite(guild, evento)
+
+
 
 # =====================================================================
 #  SERVIDOR WEB INTERNO (webhook HTTP para notificaciones de releases)
@@ -575,6 +584,13 @@ async def setup_hook():
     # los comandos !permitir / !despermitir.
     if bot.get_cog("AntiMulticuentas") is None:
         await bot.add_cog(AntiMulticuentas(bot, registrar_log))
+    # Perfil temporal PSS: extension aislada; si falla, el bot sigue sin ella.
+    if PSS_PROFILE_ENABLED:
+        try:
+            await bot.load_extension("profiles.pss")
+        except Exception:
+            print("⚠️ El perfil PSS no pudo cargarse; el bot sigue sin él:")
+            traceback.print_exc()
     # Loops: SIEMPRE despues de crear_tablas() y add_view (cualquier loop nuevo va aqui)
     if not premiar_activo_mes.is_running():
         premiar_activo_mes.start()
@@ -672,7 +688,8 @@ def buscar_canal(guild, nombre):
 
 async def registrar_log(guild, texto):
     """Escribe una linea en el canal de registros de moderacion si existe."""
-    canal = buscar_canal(guild, CANAL_LOGS)
+    perfil = bot.get_cog("PerfilPSS")
+    canal = (perfil.canal_logs(guild) if perfil is not None else None) or buscar_canal(guild, CANAL_LOGS)
     if canal is not None:
         try:
             await canal.send(texto)
@@ -715,6 +732,8 @@ async def sumar_xp(miembro, cantidad, canal_fallback=None):
     Es la logica comun de la XP por mensajes y por voz. Devuelve la XP total
     resultante; los errores de la BD se propagan (cada llamador decide)."""
     guild = miembro.guild
+    if not evento_permitido(guild, "xp"):
+        return 0
     gid, uid = str(guild.id), str(miembro.id)
     nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
     xp_total = await add_user_xp(gid, uid, cantidad)
@@ -1618,6 +1637,12 @@ def embed_bienvenida(member):
 @bot.event
 async def on_member_join(member: discord.Member):
     """Da la bienvenida y asigna el rol automatico cuando entra alguien."""
+    # Servidor con perfil temporal (PSS): el perfil se encarga de todo, incluido decidir
+    # si aplica el anti-multicuentas.
+    perfil = bot.get_cog("PerfilPSS")
+    if perfil is not None and perfil.maneja(member.guild):
+        await perfil.al_entrar(member)
+        return
     # Anti-multicuentas: si la cuenta es demasiado nueva se expulsa y no recibe
     # rol ni bienvenida.
     cog = bot.get_cog("AntiMulticuentas")
@@ -3343,6 +3368,8 @@ async def contar_tick_voz(guild, miembro):
 async def contar_voz_guild(guild):
     """Un tick de voz en un servidor: recorre los canales de voz (menos el AFK) y
     cuenta a los elegibles de cada canal que tenga al menos 2 elegibles."""
+    if not evento_permitido(guild, "voz"):
+        return
     afk_id = guild.afk_channel.id if guild.afk_channel else None
     for canal in guild.voice_channels:
         if canal.id == afk_id:

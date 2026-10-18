@@ -1,0 +1,550 @@
+"""Carga y validacion de profiles/pss.toml (perfil temporal Phantom Shadows Studios).
+
+Solo lee el TOML con `tomllib` y comprueba que sea coherente: no habla con Discord.
+`cargar()` devuelve un `Config` inmutable o lanza `ConfigInvalida` con TODOS los
+errores encontrados (cada uno con la ruta del campo), no solo el primero.
+"""
+
+import difflib
+import re
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import discord
+
+# --- Limites de Discord ---------------------------------------------------------
+MAX_ROLES = 250
+MAX_CANALES = 500          # incluye las categorias
+MAX_POR_CATEGORIA = 50
+MAX_NOMBRE = 100
+MAX_TEMA = 1024
+MAX_SLOWMODE = 21600
+MAX_LIMITE_VOZ = 99
+MAX_EMBED_TITULO = 256
+MAX_EMBED_DESCRIPCION = 4096
+MAX_EMBED_CAMPOS = 25
+MAX_CAMPO_NOMBRE = 256
+MAX_CAMPO_VALOR = 1024
+MAX_EMBED_PIE = 2048
+MAX_EMBED_TOTAL = 6000
+MAX_BOTONES = 25
+MAX_ETIQUETA_BOTON = 80
+LARGO_MENCION = 22         # "<#" + 18 digitos + ">" (estimacion al validar plantillas)
+
+EVENTOS_BOOL = ("xp", "voz", "anti_multicuentas")
+REGEX_KEY = re.compile(r"[a-z0-9_]{1,64}")
+REGEX_COLOR = re.compile(r"#?([0-9a-fA-F]{6})")
+REGEX_PLACEHOLDER = re.compile(r"\{(canal|rol):([a-z0-9_]+)\}")
+EVERYONE = "@everyone"
+
+PERMISOS_VALIDOS = frozenset(discord.Permissions.VALID_FLAGS)
+# Por valor de bit (no iterando Permissions): asi tambien entran los alias (view_channel).
+_BITS_DE_CANAL = discord.Permissions.all_channel().value
+PERMISOS_DE_CANAL = frozenset(
+    nombre for nombre, bit in discord.Permissions.VALID_FLAGS.items() if bit & _BITS_DE_CANAL
+)
+# Permisos que un rol autoasignable nunca puede tener (cualquier "elevated" de discord.py).
+PERMISOS_ELEVADOS = discord.Permissions.elevated().value
+
+
+class ConfigInvalida(Exception):
+    """El TOML no es valido. `errores` es la lista completa, una linea por problema."""
+
+    def __init__(self, errores):
+        self.errores = list(errores)
+        super().__init__(
+            "perfil PSS invalido:\n" + "\n".join(f"  - {e}" for e in self.errores)
+        )
+
+
+# --- Modelo ----------------------------------------------------------------------
+@dataclass(frozen=True)
+class Override:
+    objetivo: str                     # "@everyone" o la key de un rol
+    permitir: tuple = ()
+    denegar: tuple = ()
+
+
+@dataclass(frozen=True)
+class Rol:
+    key: str
+    nombre: str
+    color: int = 0
+    hoist: bool = False
+    mentionable: bool = False
+    permisos: tuple = ()
+    existing_id: int = 0
+    adoptar: bool = False
+    permitir_admin: bool = False
+    autoasignable: bool = False
+
+
+@dataclass(frozen=True)
+class Categoria:
+    key: str
+    nombre: str
+    orden: int = 0
+    existing_id: int = 0
+    adoptar: bool = False
+    overrides: tuple = ()
+
+
+@dataclass(frozen=True)
+class Canal:
+    key: str
+    nombre: str
+    categoria: str
+    tipo: str = "text"                # text | voice
+    nombre_actual: str | None = None   # como se llama hoy (para encontrarlo antes de renombrarlo)
+    tema: str | None = None
+    slowmode: int | None = None
+    limite_usuarios: int | None = None
+    orden: int = 0
+    existing_id: int = 0
+    adoptar: bool = False
+    mover: bool = False
+    sincronizar_permisos: bool = False
+    overrides: tuple = ()
+
+
+@dataclass(frozen=True)
+class Mensaje:
+    key: str
+    canal: str
+    titulo: str = ""
+    descripcion: str = ""
+    color: int = 0x5865F2
+    campos: tuple = ()                # ((nombre, valor, inline), ...)
+    pie: str = ""
+    publicar: bool = True
+    botones_roles: tuple = ()
+
+
+@dataclass(frozen=True)
+class Eventos:
+    xp: bool = False
+    voz: bool = False
+    anti_multicuentas: bool = False
+    rol_al_entrar: str = ""
+    bienvenida: str = ""
+    canal_logs: str = ""
+
+
+@dataclass(frozen=True)
+class Config:
+    nombre: str
+    guild_id: int
+    owner_id: int
+    gestores: tuple
+    eventos: Eventos
+    comandos_bloqueados: frozenset
+    roles: tuple
+    categorias: tuple
+    canales: tuple
+    mensajes: tuple
+    _indice: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def rol(self, key):
+        return self._indice.get(("rol", key))
+
+    def categoria(self, key):
+        return self._indice.get(("categoria", key))
+
+    def canal(self, key):
+        return self._indice.get(("canal", key))
+
+    def mensaje(self, key):
+        return self._indice.get(("mensaje", key))
+
+    def roles_autoasignables(self):
+        return tuple(r for r in self.roles if r.autoasignable)
+
+
+# --- Utilidades de validacion ----------------------------------------------------
+# Nombres que se suelen escribir mal y que difflib no adivina.
+SINONIMOS = {"manage_server": "manage_guild", "kick": "kick_members", "ban": "ban_members",
+             "manage_emojis": "manage_expressions", "read_messages": "view_channel"}
+
+
+def _sugerir(nombre, validos):
+    if SINONIMOS.get(nombre) in validos:
+        return f" (¿'{SINONIMOS[nombre]}'?)"
+    cercanos = difflib.get_close_matches(nombre, sorted(validos), n=1)
+    return f" (¿'{cercanos[0]}'?)" if cercanos else ""
+
+
+class _Validador:
+    def __init__(self):
+        self.errores = []
+
+    def error(self, ruta, texto):
+        self.errores.append(f"{ruta}: {texto}")
+
+    def tabla(self, valor, ruta):
+        if not isinstance(valor, dict):
+            self.error(ruta, "debe ser una tabla")
+            return {}
+        return valor
+
+    def lista_de_tablas(self, valor, ruta):
+        if valor is None:
+            return []
+        if not isinstance(valor, list) or not all(isinstance(v, dict) for v in valor):
+            self.error(ruta, "debe ser una lista de tablas ([[...]])")
+            return []
+        return valor
+
+    def desconocidas(self, datos, permitidas, ruta):
+        for clave in datos:
+            if clave not in permitidas:
+                self.error(f"{ruta}.{clave}", f"clave desconocida{_sugerir(clave, permitidas)}")
+
+    def texto(self, datos, clave, ruta, *, requerido=False, maximo=None, defecto=""):
+        valor = datos.get(clave, None)
+        if valor is None:
+            if requerido:
+                self.error(f"{ruta}.{clave}", "es obligatorio")
+            return defecto
+        if not isinstance(valor, str):
+            self.error(f"{ruta}.{clave}", "debe ser un texto")
+            return defecto
+        if requerido and not valor.strip():
+            self.error(f"{ruta}.{clave}", "no puede estar vacio")
+        if maximo is not None and len(valor) > maximo:
+            self.error(f"{ruta}.{clave}", f"tiene {len(valor)} caracteres (maximo {maximo})")
+        return valor
+
+    def entero(self, datos, clave, ruta, *, minimo=0, maximo=None, defecto=0, requerido=False):
+        valor = datos.get(clave, None)
+        if valor is None:
+            if requerido:
+                self.error(f"{ruta}.{clave}", "es obligatorio")
+            return defecto
+        if isinstance(valor, bool) or not isinstance(valor, int):
+            self.error(f"{ruta}.{clave}", "debe ser un numero entero")
+            return defecto
+        if valor < minimo or (maximo is not None and valor > maximo):
+            rango = f"entre {minimo} y {maximo}" if maximo is not None else f"al menos {minimo}"
+            self.error(f"{ruta}.{clave}", f"vale {valor} (debe estar {rango})")
+        return valor
+
+    def booleano(self, datos, clave, ruta, defecto=False):
+        valor = datos.get(clave, defecto)
+        if not isinstance(valor, bool):
+            self.error(f"{ruta}.{clave}", "debe ser true o false")
+            return defecto
+        return valor
+
+    def color(self, datos, clave, ruta, defecto=0):
+        valor = datos.get(clave, None)
+        if valor is None:
+            return defecto
+        if isinstance(valor, int) and not isinstance(valor, bool) and 0 <= valor <= 0xFFFFFF:
+            return valor
+        if isinstance(valor, str) and REGEX_COLOR.fullmatch(valor):
+            return int(REGEX_COLOR.fullmatch(valor).group(1), 16)
+        self.error(f"{ruta}.{clave}", f"color invalido {valor!r} (usa \"#RRGGBB\")")
+        return defecto
+
+    def permisos(self, datos, clave, ruta, validos):
+        valor = datos.get(clave, [])
+        if not isinstance(valor, list) or not all(isinstance(p, str) for p in valor):
+            self.error(f"{ruta}.{clave}", "debe ser una lista de nombres de permisos")
+            return ()
+        for permiso in valor:
+            if permiso not in validos:
+                self.error(f"{ruta}.{clave}", f"permiso invalido '{permiso}'{_sugerir(permiso, validos)}")
+        if len(set(valor)) != len(valor):
+            self.error(f"{ruta}.{clave}", "tiene permisos repetidos")
+        return tuple(dict.fromkeys(valor))
+
+    def lista_texto(self, datos, clave, ruta):
+        valor = datos.get(clave, [])
+        if not isinstance(valor, list) or not all(isinstance(x, str) for x in valor):
+            self.error(f"{ruta}.{clave}", "debe ser una lista de textos")
+            return ()
+        return tuple(valor)
+
+
+def _parsear_overrides(v, datos, ruta):
+    brutos = datos.get("overrides", [])
+    if not isinstance(brutos, list) or not all(isinstance(o, dict) for o in brutos):
+        v.error(f"{ruta}.overrides", "debe ser una lista de tablas")
+        return ()
+    resultado, vistos = [], set()
+    for i, o in enumerate(brutos):
+        r = f"{ruta}.overrides[{i}]"
+        v.desconocidas(o, {"objetivo", "permitir", "denegar"}, r)
+        objetivo = v.texto(o, "objetivo", r, requerido=True)
+        permitir = v.permisos(o, "permitir", r, PERMISOS_DE_CANAL)
+        denegar = v.permisos(o, "denegar", r, PERMISOS_DE_CANAL)
+        choque = set(permitir) & set(denegar)
+        if choque:
+            v.error(r, f"permisos en permitir y denegar a la vez: {', '.join(sorted(choque))}")
+        if objetivo in vistos:
+            v.error(r, f"el objetivo '{objetivo}' ya tiene otro override en esta lista")
+        vistos.add(objetivo)
+        resultado.append(Override(objetivo, permitir, denegar))
+    return tuple(resultado)
+
+
+def _estimar_largo_embed(m):
+    def largo(texto):
+        return len(REGEX_PLACEHOLDER.sub("x" * LARGO_MENCION, texto))
+
+    total = largo(m.titulo) + largo(m.descripcion) + largo(m.pie)
+    for nombre, valor, _inline in m.campos:
+        total += largo(nombre) + largo(valor)
+    return total
+
+
+def parsear(datos):
+    """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
+    v = _Validador()
+    raiz = v.tabla(datos, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+
+    # --- [perfil] ---
+    p = v.tabla(raiz.get("perfil", {}), "perfil")
+    v.desconocidas(p, {"nombre", "guild_id", "owner_id", "gestores"}, "perfil")
+    nombre_perfil = v.texto(p, "nombre", "perfil", defecto="Perfil")
+    guild_id = v.entero(p, "guild_id", "perfil", minimo=1, requerido=True)
+    owner_id = v.entero(p, "owner_id", "perfil", minimo=0)
+    gestores = v.lista_texto(p, "gestores", "perfil")
+
+    # --- roles ---
+    roles = []
+    for i, r in enumerate(v.lista_de_tablas(raiz.get("roles"), "roles")):
+        ruta = f"roles[{i}]"
+        v.desconocidas(r, {"key", "nombre", "color", "hoist", "mentionable", "permisos",
+                           "existing_id", "adoptar", "permitir_admin", "autoasignable"}, ruta)
+        key = v.texto(r, "key", ruta, requerido=True)
+        ruta = f"roles[{i}] '{key}'"
+        permisos = v.permisos(r, "permisos", ruta, PERMISOS_VALIDOS)
+        permitir_admin = v.booleano(r, "permitir_admin", ruta)
+        if "administrator" in permisos and not permitir_admin:
+            v.error(ruta, "tiene 'administrator' sin 'permitir_admin = true'")
+        autoasignable = v.booleano(r, "autoasignable", ruta)
+        existing_id = v.entero(r, "existing_id", ruta)
+        if autoasignable:
+            if existing_id:
+                v.error(ruta, "un rol autoasignable no puede reutilizar un rol existente (existing_id)")
+            elevados = [
+                p_ for p_ in permisos
+                if p_ in PERMISOS_VALIDOS and discord.Permissions(**{p_: True}).value & PERMISOS_ELEVADOS
+            ]
+            if elevados:
+                v.error(ruta, f"un rol autoasignable no puede tener permisos elevados: {', '.join(elevados)}")
+        roles.append(Rol(
+            key=key, nombre=v.texto(r, "nombre", ruta, requerido=True, maximo=MAX_NOMBRE),
+            color=v.color(r, "color", ruta), hoist=v.booleano(r, "hoist", ruta),
+            mentionable=v.booleano(r, "mentionable", ruta), permisos=permisos,
+            existing_id=existing_id, adoptar=v.booleano(r, "adoptar", ruta),
+            permitir_admin=permitir_admin, autoasignable=autoasignable,
+        ))
+
+    # --- categorias ---
+    categorias = []
+    for i, c in enumerate(v.lista_de_tablas(raiz.get("categorias"), "categorias")):
+        ruta = f"categorias[{i}]"
+        v.desconocidas(c, {"key", "nombre", "orden", "existing_id", "adoptar", "overrides"}, ruta)
+        key = v.texto(c, "key", ruta, requerido=True)
+        ruta = f"categorias[{i}] '{key}'"
+        categorias.append(Categoria(
+            key=key, nombre=v.texto(c, "nombre", ruta, requerido=True, maximo=MAX_NOMBRE),
+            orden=v.entero(c, "orden", ruta), existing_id=v.entero(c, "existing_id", ruta),
+            adoptar=v.booleano(c, "adoptar", ruta), overrides=_parsear_overrides(v, c, ruta),
+        ))
+
+    # --- canales ---
+    canales = []
+    for i, c in enumerate(v.lista_de_tablas(raiz.get("canales"), "canales")):
+        ruta = f"canales[{i}]"
+        v.desconocidas(c, {"key", "nombre", "nombre_actual", "tipo", "categoria", "tema", "slowmode", "limite_usuarios",
+                           "orden", "existing_id", "adoptar", "mover", "sincronizar_permisos",
+                           "overrides"}, ruta)
+        key = v.texto(c, "key", ruta, requerido=True)
+        ruta = f"canales[{i}] '{key}'"
+        tipo = v.texto(c, "tipo", ruta, defecto="text") or "text"
+        if tipo not in ("text", "voice"):
+            v.error(f"{ruta}.tipo", f"debe ser 'text' o 'voice' (vale {tipo!r})")
+        if tipo == "voice" and "tema" in c:
+            v.error(f"{ruta}.tema", "un canal de voz no tiene tema")
+        if tipo == "voice" and "slowmode" in c:
+            v.error(f"{ruta}.slowmode", "un canal de voz no tiene slowmode")
+        if tipo == "text" and "limite_usuarios" in c:
+            v.error(f"{ruta}.limite_usuarios", "solo aplica a canales de voz")
+        if "nombre_actual" in c and not c.get("adoptar"):
+            v.error(f"{ruta}.nombre_actual", "solo tiene sentido con adoptar = true (es para renombrar un canal existente)")
+        canales.append(Canal(
+            key=key, nombre=v.texto(c, "nombre", ruta, requerido=True, maximo=MAX_NOMBRE),
+            nombre_actual=(v.texto(c, "nombre_actual", ruta, requerido=True, maximo=MAX_NOMBRE)
+                           if "nombre_actual" in c else None),
+            categoria=v.texto(c, "categoria", ruta, requerido=True), tipo=tipo,
+            tema=(v.texto(c, "tema", ruta, maximo=MAX_TEMA) if "tema" in c else None),
+            slowmode=(v.entero(c, "slowmode", ruta, maximo=MAX_SLOWMODE) if "slowmode" in c else None),
+            limite_usuarios=(v.entero(c, "limite_usuarios", ruta, maximo=MAX_LIMITE_VOZ)
+                             if "limite_usuarios" in c else None),
+            orden=v.entero(c, "orden", ruta), existing_id=v.entero(c, "existing_id", ruta),
+            adoptar=v.booleano(c, "adoptar", ruta), mover=v.booleano(c, "mover", ruta),
+            sincronizar_permisos=v.booleano(c, "sincronizar_permisos", ruta),
+            overrides=_parsear_overrides(v, c, ruta),
+        ))
+
+    # --- mensajes ---
+    mensajes = []
+    for i, m in enumerate(v.lista_de_tablas(raiz.get("mensajes"), "mensajes")):
+        ruta = f"mensajes[{i}]"
+        v.desconocidas(m, {"key", "canal", "publicar", "titulo", "descripcion", "color", "campos",
+                           "pie", "botones_roles"}, ruta)
+        key = v.texto(m, "key", ruta, requerido=True)
+        ruta = f"mensajes[{i}] '{key}'"
+        campos = []
+        brutos = m.get("campos", [])
+        if not isinstance(brutos, list) or not all(isinstance(x, dict) for x in brutos):
+            v.error(f"{ruta}.campos", "debe ser una lista de tablas")
+            brutos = []
+        if len(brutos) > MAX_EMBED_CAMPOS:
+            v.error(f"{ruta}.campos", f"tiene {len(brutos)} campos (maximo {MAX_EMBED_CAMPOS})")
+        for j, campo in enumerate(brutos):
+            rc = f"{ruta}.campos[{j}]"
+            v.desconocidas(campo, {"nombre", "valor", "inline"}, rc)
+            campos.append((
+                v.texto(campo, "nombre", rc, requerido=True, maximo=MAX_CAMPO_NOMBRE),
+                v.texto(campo, "valor", rc, requerido=True, maximo=MAX_CAMPO_VALOR),
+                v.booleano(campo, "inline", rc),
+            ))
+        mensaje = Mensaje(
+            key=key, canal=v.texto(m, "canal", ruta, requerido=True),
+            titulo=v.texto(m, "titulo", ruta, maximo=MAX_EMBED_TITULO),
+            descripcion=v.texto(m, "descripcion", ruta, maximo=MAX_EMBED_DESCRIPCION),
+            color=v.color(m, "color", ruta, defecto=0x5865F2), campos=tuple(campos),
+            pie=v.texto(m, "pie", ruta, maximo=MAX_EMBED_PIE),
+            publicar=v.booleano(m, "publicar", ruta, defecto=True),
+            botones_roles=v.lista_texto(m, "botones_roles", ruta),
+        )
+        if not (mensaje.titulo or mensaje.descripcion or mensaje.campos):
+            v.error(ruta, "el mensaje esta vacio (pon titulo, descripcion o campos)")
+        if len(mensaje.botones_roles) > MAX_BOTONES:
+            v.error(f"{ruta}.botones_roles", f"tiene {len(mensaje.botones_roles)} botones (maximo {MAX_BOTONES})")
+        total = _estimar_largo_embed(mensaje)
+        if total > MAX_EMBED_TOTAL:
+            v.error(ruta, f"el embed suma {total} caracteres (maximo {MAX_EMBED_TOTAL})")
+        mensajes.append(mensaje)
+
+    # --- [eventos] ---
+    e = v.tabla(raiz.get("eventos", {}), "eventos")
+    v.desconocidas(e, set(EVENTOS_BOOL) | {"rol_al_entrar", "bienvenida", "canal_logs"}, "eventos")
+    eventos = Eventos(
+        **{nombre: v.booleano(e, nombre, "eventos") for nombre in EVENTOS_BOOL},
+        rol_al_entrar=v.texto(e, "rol_al_entrar", "eventos"),
+        bienvenida=v.texto(e, "bienvenida", "eventos"),
+        canal_logs=v.texto(e, "canal_logs", "eventos"),
+    )
+
+    # --- [comandos] ---
+    cm = v.tabla(raiz.get("comandos", {}), "comandos")
+    v.desconocidas(cm, {"bloquear"}, "comandos")
+    bloqueados = frozenset(v.lista_texto(cm, "bloquear", "comandos"))
+    if "pss" in bloqueados:
+        v.error("comandos.bloquear", "no se puede bloquear 'pss' (es el propio perfil)")
+
+    # --- claves unicas globales ---
+    indice = {}
+    vistas = {}
+    for tipo, elementos in (("rol", roles), ("categoria", categorias), ("canal", canales), ("mensaje", mensajes)):
+        for el in elementos:
+            if not REGEX_KEY.fullmatch(el.key or ""):
+                v.error(f"{tipo} '{el.key}'", "la key debe ser [a-z0-9_] de 1 a 64 caracteres")
+            if el.key in vistas:
+                v.error(f"{tipo} '{el.key}'", f"key duplicada (ya la usa un/a {vistas[el.key]})")
+            else:
+                vistas[el.key] = tipo
+                indice[(tipo, el.key)] = el
+    ids_existentes = {}
+    for tipo, elementos in (("rol", roles), ("categoria", categorias), ("canal", canales)):
+        for el in elementos:
+            if el.existing_id:
+                clave = (tipo if tipo == "rol" else "canal", el.existing_id)
+                if clave in ids_existentes:
+                    v.error(f"{tipo} '{el.key}'", f"existing_id {el.existing_id} repetido en '{ids_existentes[clave]}'")
+                ids_existentes[clave] = el.key
+
+    # --- referencias ---
+    claves_roles = {r.key for r in roles}
+    claves_canales_texto = {c.key for c in canales if c.tipo == "text"}
+    claves_categorias = {c.key for c in categorias}
+
+    def referencia_rol(valor, ruta):
+        if valor and valor not in claves_roles:
+            v.error(ruta, f"referencia al rol '{valor}', que no existe en [[roles]]")
+
+    def referencia_canal(valor, ruta):
+        if valor and valor not in claves_canales_texto:
+            v.error(ruta, f"referencia al canal de texto '{valor}', que no existe en [[canales]]")
+
+    for g in gestores:
+        referencia_rol(g, "perfil.gestores")
+    referencia_rol(eventos.rol_al_entrar, "eventos.rol_al_entrar")
+    referencia_canal(eventos.bienvenida, "eventos.bienvenida")
+    referencia_canal(eventos.canal_logs, "eventos.canal_logs")
+    for el in (*categorias, *canales):
+        for o in el.overrides:
+            if o.objetivo != EVERYONE and o.objetivo not in claves_roles:
+                v.error(f"{type(el).__name__.lower()} '{el.key}'.overrides",
+                        f"objetivo '{o.objetivo}' no es '@everyone' ni un rol de [[roles]]")
+    por_categoria = {}
+    for c in canales:
+        if c.categoria not in claves_categorias:
+            v.error(f"canal '{c.key}'.categoria", f"la categoria '{c.categoria}' no existe en [[categorias]]")
+        por_categoria[c.categoria] = por_categoria.get(c.categoria, 0) + 1
+        if c.sincronizar_permisos and c.overrides:
+            v.error(f"canal '{c.key}'", "sincronizar_permisos y overrides propios se contradicen")
+    for m in mensajes:
+        referencia_canal(m.canal, f"mensaje '{m.key}'.canal")
+        for rk in m.botones_roles:
+            rol = indice.get(("rol", rk))
+            if rol is None:
+                v.error(f"mensaje '{m.key}'.botones_roles", f"el rol '{rk}' no existe en [[roles]]")
+            elif not rol.autoasignable:
+                v.error(f"mensaje '{m.key}'.botones_roles", f"el rol '{rk}' no es autoasignable")
+            elif len(rol.nombre) > MAX_ETIQUETA_BOTON:
+                v.error(f"mensaje '{m.key}'.botones_roles", f"el nombre del rol '{rk}' no cabe en un boton")
+        texto_total = " ".join([m.titulo, m.descripcion, m.pie, *[f"{n} {val}" for n, val, _ in m.campos]])
+        for tipo_ref, key_ref in REGEX_PLACEHOLDER.findall(texto_total):
+            if tipo_ref == "canal" and key_ref not in {c.key for c in canales}:
+                v.error(f"mensaje '{m.key}'", f"{{canal:{key_ref}}} no existe en [[canales]]")
+            if tipo_ref == "rol" and key_ref not in claves_roles:
+                v.error(f"mensaje '{m.key}'", f"{{rol:{key_ref}}} no existe en [[roles]]")
+
+    # --- limites globales ---
+    if len(roles) > MAX_ROLES:
+        v.error("roles", f"hay {len(roles)} roles (maximo {MAX_ROLES} por servidor)")
+    if len(canales) + len(categorias) > MAX_CANALES:
+        v.error("canales", f"hay {len(canales) + len(categorias)} canales y categorias (maximo {MAX_CANALES})")
+    for cat, total in por_categoria.items():
+        if total > MAX_POR_CATEGORIA:
+            v.error(f"categoria '{cat}'", f"tiene {total} canales (maximo {MAX_POR_CATEGORIA})")
+
+    if v.errores:
+        raise ConfigInvalida(v.errores)
+    return Config(
+        nombre=nombre_perfil, guild_id=guild_id, owner_id=owner_id, gestores=gestores,
+        eventos=eventos, comandos_bloqueados=bloqueados,
+        roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
+        mensajes=tuple(mensajes), _indice=indice,
+    )
+
+
+def cargar(ruta):
+    """Lee y valida el TOML en `ruta` (str o Path). Lanza ConfigInvalida si hay problemas."""
+    ruta = Path(ruta)
+    try:
+        with ruta.open("rb") as f:
+            datos = tomllib.load(f)
+    except FileNotFoundError:
+        raise ConfigInvalida([f"no existe el archivo {ruta}"]) from None
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigInvalida([f"{ruta.name} no es un TOML valido: {e}"]) from None
+    return parsear(datos)

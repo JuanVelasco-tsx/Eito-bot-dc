@@ -99,6 +99,15 @@ un rol de honor (hoy 🥇 OG, lista `ROLES_HONOR_IDS`), el bot lo anuncia con el
 «Reconocido por el staff». Quitar el rol, o dar cualquier otro rol, no anuncia nada.
 El Activo del mes sigue anunciándose en el canal de niveles.
 
+## 🧩 Perfil temporal: Phantom Shadows Studios
+
+Extensión opcional (`profiles/pss.py` + `profiles/pss.toml`) que usa el bot para organizar
+el servidor de **Phantom Shadows Studios** sin afectar a ningún otro servidor. Se activa con
+`PSS_PROFILE_ENABLED=1` (sin la variable, el bot arranca exactamente igual). `!pss plan`
+muestra qué haría sin tocar nada y `!pss aplicar` lo aplica con confirmación; nunca borra y
+es idempotente (el mapeo `key → ID` se guarda en la tabla `perfil_recursos`). Guía completa,
+orden de despliegue y cómo retirarlo: [`docs/phantom-shadows-studios.md`](docs/phantom-shadows-studios.md).
+
 ## 🚀 Instalación
 
 1. Instala Python 3.12 y las dependencias:
@@ -120,6 +129,8 @@ El Activo del mes sigue anunciándose en el canal de niveles.
    | `EITO_GUILD_ID` | No | ID del servidor principal. Ahí `!darnivel` queda bloqueado. Déjala vacía en servers de pruebas. |
    | `RELEASE_CHANNEL_ID` | No | Canal donde el webhook publica nuevas versiones. Si falta, busca el canal `🔧・l4d2-mod-loader`. |
    | `RELEASE_WEBHOOK_SECRET` | Para el webhook | Secreto `Bearer` de `POST /release-webhook`. Sin él, el endpoint responde 503. |
+   | `PSS_PROFILE_ENABLED` | No | `1` activa el perfil temporal de Phantom Shadows Studios (ver su guía). |
+   | `PSS_PROFILE_CONFIG` | No | Ruta de otro TOML para ese perfil (por defecto `profiles/pss.toml`). |
    | `PORT` | No | Puerto del servidor web interno (por defecto `8080`; si está vacía también se usa `8080`). |
 
 4. En el [Developer Portal](https://discord.com/developers/applications),
@@ -212,6 +223,7 @@ El bot guarda todo en **PostgreSQL** (`DATABASE_URL`), separado por servidor
 - `user_warns` — avisos de moderación
 - `config_servidor` — configuración por servidor (panel +18)
 - `mensajes_fijos` — canal y mensaje de reglas, guía, panel de roles, panel de tickets y presentaciones (para editarlos)
+- `perfil_recursos` — solo con el perfil PSS activo: mapeo `key → ID de Discord` y mensajes publicados
 
 ## 🧪 Pruebas
 
