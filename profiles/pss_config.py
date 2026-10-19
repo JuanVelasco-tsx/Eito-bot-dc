@@ -80,6 +80,7 @@ class Rol:
     adoptar: bool = False
     permitir_admin: bool = False
     autoasignable: bool = False
+    por_encima_del_bot: bool = False   # el rol va (a mano) por encima del bot: no avisar de la jerarquia
 
 
 @dataclass(frozen=True)
@@ -321,7 +322,7 @@ def parsear(datos):
     for i, r in enumerate(v.lista_de_tablas(raiz.get("roles"), "roles")):
         ruta = f"roles[{i}]"
         v.desconocidas(r, {"key", "nombre", "color", "hoist", "mentionable", "permisos",
-                           "existing_id", "adoptar", "permitir_admin", "autoasignable"}, ruta)
+                           "existing_id", "adoptar", "permitir_admin", "autoasignable", "por_encima_del_bot"}, ruta)
         key = v.texto(r, "key", ruta, requerido=True)
         ruta = f"roles[{i}] '{key}'"
         permisos = v.permisos(r, "permisos", ruta, PERMISOS_VALIDOS)
@@ -345,6 +346,7 @@ def parsear(datos):
             mentionable=v.booleano(r, "mentionable", ruta), permisos=permisos,
             existing_id=existing_id, adoptar=v.booleano(r, "adoptar", ruta),
             permitir_admin=permitir_admin, autoasignable=autoasignable,
+            por_encima_del_bot=v.booleano(r, "por_encima_del_bot", ruta),
         ))
 
     # --- categorias ---

@@ -42,7 +42,7 @@ La tabla `perfil_recursos` se crea sola al cargar el perfil (no existe si el per
    Ver canales, Enviar mensajes, Insertar enlaces, Leer historial, Adjuntar archivos, Añadir
    reacciones, Gestionar mensajes, Gestionar canales, Gestionar roles, Expulsar, Banear y
    Moderar miembros.
-4. **(d) `!pss plan` otra vez:** todo debe salir en «⏭️ omitir» (nada pendiente ni bloqueado).
+4. **(d) `!pss plan` otra vez:** todo debe salir en «⏭️ omitir» (nada pendiente ni bloqueado); entonces el plan lo dice con «✅ El servidor coincide con la configuración» y ya no repite el orden de despliegue.
    El reporte de `!pss plan` y de `!pss aplicar` repite estos cuatro pasos.
 
 Con el bot ya sin administrador, el plan marca **«bloqueado: el bot no tiene X»** cualquier
@@ -76,7 +76,7 @@ Tras aplicar, a mano:
 | `[perfil]` | `nombre`, `guild_id`, `owner_id` (solo verificación), `gestores` (keys de roles que pueden usar `!pss`; vacío = solo el dueño) |
 | `[eventos]` | `xp`, `voz`, `anti_multicuentas` (true/false), `rol_al_entrar`, `bienvenida`, `canal_logs` (keys) |
 | `[comandos]` | `bloquear = [...]` comandos de EITO que no funcionan en este servidor |
-| `[[roles]]` | `key`, `nombre`, `color` (`"#RRGGBB"`), `hoist`, `mentionable`, `permisos` (flags de `discord.Permissions`), `existing_id`, `adoptar`, `permitir_admin`, `autoasignable` |
+| `[[roles]]` | `key`, `nombre`, `color` (`"#RRGGBB"`), `hoist`, `mentionable`, `permisos` (flags de `discord.Permissions`), `existing_id`, `adoptar`, `permitir_admin`, `autoasignable`, `por_encima_del_bot` (el rol va a mano por encima del bot: el plan no avisa de la jerarquía; lo usa Propietario) |
 | `[[categorias]]` | `key`, `nombre`, `orden`, `existing_id`, `adoptar`, `overrides` |
 | `[[canales]]` | `key`, `nombre`, `nombre_actual` (solo con `adoptar`: cómo se llama hoy, para renombrarlo), `categoria`, `tipo` (`text`/`voice`/`news`/`forum`), `reemplaza` (solo foros), `tema`, `slowmode`, `limite_usuarios`, `orden`, `existing_id`, `adoptar`, `mover`, `sincronizar_permisos`, `overrides` |
 | `[[mensajes]]` | `key`, `canal`, `publicar`, `titulo`, `descripcion`, `color`, `campos`, `pie`, `botones_roles` |

@@ -48,6 +48,8 @@ key = "propietario"
 nombre = "Propietario"
 color = "#F1C40F"
 hoist = true
+# Se arrastra a mano POR ENCIMA del rol del bot: el plan no avisa de la jerarquia para este rol.
+por_encima_del_bot = true
 permisos = []                      # sin administrator: solo color y separacion en la lista
 # Los roles nuevos se crean por debajo del bot: arrastra este a mano por encima del bot.
 

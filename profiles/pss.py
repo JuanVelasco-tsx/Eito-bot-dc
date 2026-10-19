@@ -28,7 +28,7 @@ from profiles.pss_config import ConfigInvalida, PERMISOS_ELEVADOS, cargar
 from profiles.pss_exec import (
     construir_snapshot, ejecutar, reunir_estado_mensajes,
 )
-from profiles.pss_plan import ORDEN_DESPLIEGUE, calcular_plan, lineas_plan
+from profiles.pss_plan import MENSAJE_COINCIDE, ORDEN_DESPLIEGUE, calcular_plan, lineas_plan
 
 RUTA_POR_DEFECTO = Path(__file__).with_name("pss.toml")
 TIMEOUT_CONFIRMACION = 60
@@ -299,7 +299,8 @@ class PerfilPSS(commands.Cog):
             embed = discord.Embed(title=titulo if i == 0 else None, description=texto,
                                   colour=discord.Colour(0xF1C40F))
             if i == len(bloques) - 1:
-                embed.add_field(name="​", value=ORDEN_DESPLIEGUE, inline=False)
+                embed.add_field(name="​", value=MENSAJE_COINCIDE if plan.coincide() else ORDEN_DESPLIEGUE,
+                                inline=False)
             await destino.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
     # ---- comandos ----
@@ -345,7 +346,7 @@ class PerfilPSS(commands.Cog):
                        *[f"• {m}" for m in plan.manuales]]
         if plan.advertencias:
             lineas += ["", "**⚠️ Advertencias**", *[f"• {a}" for a in plan.advertencias]]
-        lineas += ["", "Usa `!pss plan` para ver el detalle completo. Nada se borra."]
+        lineas += ["", "Usa `!pss plan` para ver el detalle completo. No se borran canales, categorías ni roles."]
         embed = discord.Embed(
             title="⚠️ ¿Aplicar el perfil PSS?",
             description=trocear(lineas)[0],

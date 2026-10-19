@@ -36,6 +36,8 @@ ORDEN_DESPLIEGUE = (
     "d) `!pss plan` otra vez: debe dar todo en «omitir»."
 )
 
+MENSAJE_COINCIDE = "✅ El servidor coincide con la configuración"
+
 
 def bits(nombres):
     """Valor entero de una lista de nombres de permisos de discord.Permissions."""
@@ -153,6 +155,10 @@ class Plan:
 
     def bloqueadas(self):
         return self.con_op("bloqueado")
+
+    def coincide(self):
+        """Todo en «omitir»: no hay nada que crear, actualizar, vincular ni desbloquear."""
+        return bool(self.acciones) and not self.con_op("crear", "actualizar", "vincular", "bloqueado")
 
     def resumen(self):
         cuenta = {op: 0 for op in ("crear", "actualizar", "vincular", "omitir", "bloqueado")}
@@ -802,7 +808,7 @@ def _advertencias(config, snap, res, ids_roles, perdedores, plan):
                 f"«{obj.name}» tiene `administrator` ({miembros} miembro(s)): quien lo reciba ignora "
                 "todos los overrides (Equipo, Staff…). No lo toco; cámbialo tú si quieres."
             )
-        if not snap.rol_bajo_el_bot(obj):
+        if not r.por_encima_del_bot and not snap.rol_bajo_el_bot(obj):
             avisos.append(f"El rol del bot no está por encima de «{obj.name}»: no podré editarlo ni asignarlo.")
     if any(a.op == "crear" and a.tipo == "rol" for a in plan.acciones):
         nombres = [r.nombre for r in config.roles if r.key == "propietario"]

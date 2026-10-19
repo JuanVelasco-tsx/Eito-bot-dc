@@ -230,6 +230,17 @@ def test_administrator_exige_permitir_admin():
     assert parsear(d).rol("miembro").permitir_admin
 
 
+def test_por_encima_del_bot_es_opcional_booleano_y_solo_lo_usa_propietario():
+    d = datos()
+    assert parsear(d).rol("miembro").por_encima_del_bot is False
+    d["roles"][0]["por_encima_del_bot"] = True
+    assert parsear(d).rol("miembro").por_encima_del_bot is True
+    d["roles"][0]["por_encima_del_bot"] = "si"
+    assert errores_de(d)
+    c = cargar(RUTA_REAL)
+    assert [r.key for r in c.roles if r.por_encima_del_bot] == ["propietario"]
+
+
 def test_claves_duplicadas_entre_tipos():
     d = datos()
     d["canales"].append({"key": "miembro", "nombre": "x", "categoria": "cat_a"})

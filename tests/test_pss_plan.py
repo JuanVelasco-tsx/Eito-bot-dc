@@ -243,6 +243,16 @@ def test_rol_propio_se_mantiene_al_dia_y_si_el_bot_ya_no_tiene_permisos_no_hay_b
     assert accion(plan, "colab").op == "actualizar" and "permisos" in accion(plan, "colab").cambios
 
 
+def test_no_avisa_de_jerarquia_para_los_roles_que_van_por_encima_del_bot():
+    roles = [SRol(60, "Colaborador", 20), SRol(61, "Jefe", 20)]      # los dos por encima del bot (posicion 10)
+    datos = {"perfil": {"guild_id": G, "owner_id": DUENO},
+             "roles": [{"key": "colab", "nombre": "Colaborador", "existing_id": 60},
+                       {"key": "jefe", "nombre": "Jefe", "existing_id": 61, "por_encima_del_bot": True}]}
+    plan = calcular_plan(parsear(datos), snap(roles=roles), {}, {})
+    avisos = [a for a in plan.advertencias if "no está por encima" in a]
+    assert len(avisos) == 1 and "Colaborador" in avisos[0] and "Jefe" not in avisos[0]
+
+
 def test_limites_de_roles_y_de_canales_por_categoria():
     muchos = [SRol(1000 + i, f"r{i}", 1) for i in range(MAX_ROLES - 1)]   # + @everyone = 250
     plan = calcular_plan(config(), snap(roles=muchos), {}, {})

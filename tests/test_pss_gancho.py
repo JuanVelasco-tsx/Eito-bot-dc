@@ -13,6 +13,7 @@ from discord.ext import commands
 from profiles import pss, pss_db
 from profiles.pss import ConfirmarAplicar, PanelEspecialidades, PerfilPSS, PssNoAplica, PssSinPermiso
 from profiles.pss_config import cargar
+from profiles.pss_plan import Accion, Plan
 
 RUTA = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 G_PSS = 1420403964746268684
@@ -535,7 +536,8 @@ class CtxPlan:
 async def test_pss_plan_envia_el_reporte_con_el_orden_de_despliegue(cog, monkeypatch):
     from profiles.pss_plan import Accion, Plan
 
-    plan = Plan(acciones=[Accion("rol", "miembro", "omitir", "Miembro")])
+    plan = Plan(acciones=[Accion("rol", "miembro", "omitir", "Miembro"),
+                          Accion("rol", "ui", "crear", "UI")])
 
     async def calcular(guild):
         return plan, {}
@@ -546,6 +548,38 @@ async def test_pss_plan_envia_el_reporte_con_el_orden_de_despliegue(cog, monkeyp
     embeds = [kw["embed"] for _c, kw in ctx.enviados]
     assert "no se tocó nada" in embeds[0].title
     assert "1099780189270" in embeds[-1].fields[0].value and "d)" in embeds[-1].fields[0].value
+
+
+@pytest.mark.parametrize("otras", [[Accion("rol", "x", "bloqueado", "X", razon="r")],
+                                   [Accion("rol", "x", "vincular", "X")]])
+async def test_pss_plan_con_algo_pendiente_o_bloqueado_sigue_mostrando_el_orden_de_despliegue(cog, monkeypatch, otras):
+    plan = Plan(acciones=[Accion("rol", "miembro", "omitir", "Miembro"), *otras])
+
+    async def calcular(guild):
+        return plan, {}
+
+    monkeypatch.setattr(cog, "_calcular", calcular)
+    ctx = CtxPlan(FGuild())
+    await cog.plan.callback(cog, ctx)
+    campo = ctx.enviados[-1][1]["embed"].fields[0].value
+    assert "Orden de despliegue" in campo and "coincide" not in campo
+
+
+@pytest.mark.parametrize("comando", ["plan", "aplicar"])
+async def test_pss_con_todo_en_omitir_dice_que_el_servidor_coincide_y_no_el_orden_de_despliegue(cog, monkeypatch, comando):
+    plan = Plan(acciones=[Accion("rol", "miembro", "omitir", "Miembro"), Accion("canal", "general", "omitir", "general")],
+                manuales=["Categoría «🟥 Roblox»: queda **vacía**; bórrala a mano"])
+
+    async def calcular(guild):
+        return plan, {}
+
+    monkeypatch.setattr(cog, "_calcular", calcular)
+    ctx = CtxPlan(FGuild())
+    await getattr(cog, comando).callback(cog, ctx)
+    embed = ctx.enviados[-1][1]["embed"]
+    assert embed.fields[0].value == "✅ El servidor coincide con la configuración"
+    assert not any("Orden de despliegue" in (f.value or "") for _c, kw in ctx.enviados for f in kw["embed"].fields)
+    assert "Roblox" in "".join(kw["embed"].description or "" for _c, kw in ctx.enviados)    # lo manual se sigue listando
 
 
 async def test_pss_aplicar_sin_pendientes_no_pide_confirmacion(cog, monkeypatch):
@@ -577,3 +611,5 @@ async def test_pss_aplicar_con_pendientes_pide_confirmacion_a_quien_lo_invoco(co
     assert isinstance(kw["view"], ConfirmarAplicar) and kw["view"].autor_id == 1
     assert kw["view"].huella == plan.huella()
     assert "frontend" in kw["embed"].description and "manage_guild" in kw["embed"].description
+    assert "No se borran canales, categorías ni roles." in kw["embed"].description
+    assert "Nada se borra" not in kw["embed"].description
