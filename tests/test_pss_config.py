@@ -300,7 +300,7 @@ def test_fase_1_roles_nuevos_helper_y_novedades():
     c = cargar(RUTA_REAL)
     helper, novedades = c.rol("helper"), c.rol("novedades")
     assert helper.nombre == "Helper" and helper.permisos == () and not helper.autoasignable and not helper.mentionable
-    assert novedades.nombre == "🔔 Novedades" and novedades.mentionable and novedades.autoasignable
+    assert novedades.nombre == "🔔 Novedades" and not novedades.mentionable and novedades.autoasignable
     assert novedades.permisos == () and not novedades.hoist
     assert not any("administrator" in r.permisos for r in c.roles)
 
@@ -416,7 +416,7 @@ def test_fase_3_voz_activa_y_webhook_de_pss():
     assert voz.nombre == "🎧 Voz activa" and voz.permisos == () and not voz.autoasignable
     assert c.recursos.roles["voz_activa"] == ("voz_activa",)
     assert c.webhook == {"pss": DestinoRelease(canal="anuncios", rol="novedades")}
-    assert c.canal(c.webhook["pss"].canal).tipo == "news" and c.rol(c.webhook["pss"].rol).mentionable
+    assert c.canal(c.webhook["pss"].canal).tipo == "news" and not c.rol(c.webhook["pss"].rol).mentionable
     # la recompensa por nivel NO se implementa: ni el rol ni el canal de EITO
     assert c.rol("nivel_10") is None and c.canal("nivel_10") is None
     assert not any("nivel-10" in x.nombre or "Nivel 10" in x.nombre for x in (*c.canales, *c.roles))
@@ -539,7 +539,7 @@ def test_roles_del_equipo_sin_boton_y_roles_nuevos_de_avisos_y_plataforma():
         assert not c.rol(key).autoasignable and c.rol(key).permisos == ()
     assert [r.key for r in c.roles_autoasignables()] == ["novedades", "eventos", "movil", "pc", "consola"]
     eventos = c.rol("eventos")
-    assert eventos.nombre == "🎉 Eventos" and eventos.mentionable and eventos.permisos == ()
+    assert eventos.nombre == "🎉 Eventos" and not eventos.mentionable and eventos.permisos == ()
     for key, nombre in (("movil", "📱 Móvil"), ("pc", "💻 PC"), ("consola", "🎮 Consola")):
         assert c.rol(key).nombre == nombre and c.rol(key).permisos == () and not c.rol(key).mentionable, key
 

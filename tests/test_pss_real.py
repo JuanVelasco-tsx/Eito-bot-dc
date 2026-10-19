@@ -83,13 +83,12 @@ def test_plan_real_con_comunidad(real):
         "cat_juego", "codigos", "reportar_bugs", "eventos", "movil", "pc", "consola"}
     assert [x for x in plan.acciones if x.op == "bloqueado"] == []
     assert {k for k, x in a.items() if x.op == "omitir"} == {
-        "propietario", "administrador", "developer", "colaborador", "miembro", "scripter", "builder", "ui",
-        "voz_general", "reuniones"}
+        "propietario", "administrador", "developer", "colaborador", "miembro", "voz_general", "reuniones"}
     actualizar = {k for k, x in a.items() if x.op == "actualizar"}
     assert actualizar == {
         "cat_estudio", "cat_comunidad", "cat_voz", "cat_equipo", "cat_staff",
         "reglas", "anuncios", "general", "showcase", "no_relacionado", "scripting_luau", "info_importante",
-        "planificacion_sesiones", "registros",
+        "planificacion_sesiones", "registros", "scripter", "builder", "ui",          # dejan de ser mencionables
         "msg_reglas", "msg_info_estudio", "msg_guia", "msg_especialidades", "@orden"}
     assert "convertir a canal de anuncios" in a["anuncios"].detalle and a["anuncios"].cambios["tipo"] == "news"
     # Equipo ya estaba sincronizado en el servidor real: solo se renombran
@@ -227,6 +226,7 @@ async def test_plan_del_juego_sobre_lo_desplegado(desplegado):
         "cat_juego", "codigos", "reportar_bugs", "eventos", "movil", "pc", "consola"}
     assert {k for k, x in a.items() if x.op == "actualizar"} == {
         "sugerencias", "ayuda", "soporte", "showcase", "scripting_luau", "info_estudio",
+        "scripter", "builder", "ui", "novedades",                                   # dejan de ser mencionables
         "msg_reglas", "msg_info_estudio", "msg_guia", "msg_especialidades", "@orden"}
     assert [x for x in plan.acciones if x.op == "bloqueado"] == []
     assert a["scripting_luau"].cambios == {"mover": "cat_equipo", "sincronizar": True}      # pasa a ser privado

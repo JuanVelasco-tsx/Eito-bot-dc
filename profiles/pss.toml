@@ -257,39 +257,40 @@ nombre = "Miembro"
 color = "#2ECC71"
 permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
 
-# Roles del equipo (sin permisos): se asignan a mano, SIN boton. Antes eran autoasignables; un boton
+# Roles del equipo (sin permisos, no mencionables): se asignan a mano, SIN boton. Antes eran autoasignables; un boton
 # viejo ya publicado responde que el rol ya no se autoasigna.
 [[roles]]
 key = "scripter"
 nombre = "Scripter"
 color = "#9B59B6"
-mentionable = true
+mentionable = false
 
 [[roles]]
 key = "builder"
 nombre = "Builder"
 color = "#E67E22"
-mentionable = true
+mentionable = false
 
 [[roles]]
 key = "ui"
 nombre = "UI"
 color = "#1ABC9C"
-mentionable = true
+mentionable = false
 
-# Avisos opt-in: se pulsan en el panel de #info-estudio. Son mencionables (sin permisos).
+# Avisos opt-in: se pulsan en el panel de #info-estudio (sin permisos). NO son mencionables por miembros;
+# el bot (permiso «Mencionar @everyone, @here y todos los roles») y el staff si pueden mencionarlos.
 [[roles]]
 key = "novedades"
 nombre = "🔔 Novedades"
 color = "#F1C40F"
-mentionable = true
+mentionable = false
 autoasignable = true
 
 [[roles]]
 key = "eventos"
 nombre = "🎉 Eventos"
 color = "#E91E63"
-mentionable = true
+mentionable = false
 autoasignable = true
 
 # Plataforma de juego (opcional, sin permisos, no mencionable).
@@ -453,7 +454,7 @@ key = "reportar_bugs"
 nombre = "🐛・reportar-bugs"
 tipo = "forum"
 categoria = "cat_juego"
-tema = "¿Algo falla? Crea una publicación con tu plataforma (móvil, PC o consola) y qué estabas haciendo."
+tema = "Un bug por publicación, con un título corto que lo describa. Indica tu plataforma, qué estabas haciendo, qué esperabas y qué pasó; si puedes, añade captura o vídeo. Busca antes por si ya está reportado. Los exploits NO se publican aquí: repórtalos por ticket en #🎫・soporte."
 orden = 2
 
 # Se mueve desde COMUNIDAD. El nombre EXACTO "💡・sugerencias" es el que busca !sugerencia de EITO.
@@ -473,7 +474,7 @@ nombre = "❓・ayuda"
 tipo = "forum"
 reemplaza = "ayuda"
 categoria = "cat_juego"
-tema = "¿Tienes una duda? Crea una publicación con tu pregunta. ¿Algo privado? Abre un ticket en #🎫・soporte."
+tema = "Una duda por publicación, con un título claro. Busca antes por si ya está respondida y marca ✅ Resuelto cuando te ayuden. Para temas privados (cuenta, compras), abre un ticket en #🎫・soporte."
 mover = true
 orden = 4
 

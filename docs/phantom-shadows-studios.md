@@ -460,7 +460,9 @@ con gestión del servidor pero sin `administrator`; Developer existente, sin toc
 Miembro con permisos básicos; Helper —sin permisos, lo da el staff a mano a quien ayuda en el foro—;
 Scripter, Builder y UI del equipo (sin permisos, se dan a mano, sin botón); 🔔 Novedades, 🎉 Eventos,
 📱 Móvil, 💻 PC y 🎮 Consola autoasignables con botón en `#info-estudio` y sin permisos (Novedades y
-Eventos mencionables); 🌱 Fundador, 🥉 Veterano, 🥈 Leyenda, 🥇 OG y 🔥 Activo del mes sin
+Eventos incluidos, **ningún rol del perfil es mencionable por miembros**: el bot y el staff sí pueden mencionarlos, el bot
+gracias al permiso «Mencionar @everyone, @here y todos los roles» del entero mínimo, que es lo que hace que el
+webhook de releases siga notificando a 🔔 Novedades); 🌱 Fundador, 🥉 Veterano, 🥈 Leyenda, 🥇 OG y 🔥 Activo del mes sin
 permisos, como distinciones).
 Todo lo demás está comentado en el TOML como ejemplo.
 

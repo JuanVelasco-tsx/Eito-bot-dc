@@ -156,7 +156,7 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     helper = next(r for r in srv.roles if r.name == "Helper")
     novedades = next(r for r in srv.roles if r.name == "🔔 Novedades")
     assert helper.permissions.value == 0 and helper.hoist and not helper.mentionable
-    assert novedades.mentionable and novedades.permissions.value == 0
+    assert not novedades.mentionable and novedades.permissions.value == 0
 
     # Mensajes: #reglas solo las reglas; info, guia y botones en #info-estudio
     assert [m.embed.title for m in c["📜・reglas"].mensajes.values()] == ["📜 Reglas"]
