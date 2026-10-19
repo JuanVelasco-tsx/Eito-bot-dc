@@ -12,12 +12,21 @@
 #     bot solo se toca si lo marcas aqui (`adoptar`, `mover`, `sincronizar_permisos`).
 #     Unica excepcion: al mover un mensaje del bot a otro canal se republica y se borra el
 #     antiguo, solo si es del bot y esta mapeado.
-#   - Estructura pequeña a proposito (19 canales de texto/anuncios/foros y 2 de voz). Lo demas
+#   - Estructura pequeña a proposito (20 canales de texto/anuncios/foros y 2 de voz). Lo demas
 #     esta COMENTADO como plantilla: descomentalo cuando haga falta.
 #   - Los canales de anuncios ("news") y los foros ("forum") exigen la funcion COMUNIDAD:
 #     activala antes de `!pss aplicar` (si no, el plan los marca "bloqueado: activa Comunidad").
 #   - Orden: el de `orden` en las categorias y, dentro de cada una, el de `orden` en los canales.
 #   - Tras editar: `!pss recargar` (en Railway, el archivo cambia con un deploy) y `!pss plan`.
+
+# Datos del juego de Roblox (la comunidad son sus JUGADORES). Todo es opcional:
+#  - `nombre` vacio: la categoria se llama "🎮 » EL JUEGO" y la info omite el campo del juego.
+#    Al rellenarlo, `!pss aplicar` renombra la categoria a "🎮 » <NOMBRE>" y actualiza los mensajes.
+#  - `enlace_juego` y `enlace_grupo`: URLs https de roblox.com (se validan).
+[juego]
+nombre = ""
+enlace_juego = ""        # p. ej. "https://www.roblox.com/games/123456789/Nombre"
+enlace_grupo = ""        # p. ej. "https://www.roblox.com/communities/123456789/Nombre"
 
 [perfil]
 nombre = "Phantom Shadows Studios"
@@ -41,8 +50,7 @@ titulo = "👋 ¡Bienvenido/a a {servidor}!"
 descripcion = """¡Hola {usuario}! 🎉
 
 📜 Lee las reglas en {canal:reglas}.
-ℹ️ Conoce el estudio y elige tus especialidades en {canal:info_estudio}.
-🙋 Preséntate en {canal:presentaciones}.
+ℹ️ Conoce el estudio y elige tus roles en {canal:info_estudio}.
 
 Eres el miembro **#{numero}** 🎊"""
 color = "#2ECC71"
@@ -249,29 +257,27 @@ nombre = "Miembro"
 color = "#2ECC71"
 permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
 
-# Especialidades autoasignables con botones (sin permisos).
+# Roles del equipo (sin permisos): se asignan a mano, SIN boton. Antes eran autoasignables; un boton
+# viejo ya publicado responde que el rol ya no se autoasigna.
 [[roles]]
 key = "scripter"
 nombre = "Scripter"
 color = "#9B59B6"
 mentionable = true
-autoasignable = true
 
 [[roles]]
 key = "builder"
 nombre = "Builder"
 color = "#E67E22"
 mentionable = true
-autoasignable = true
 
 [[roles]]
 key = "ui"
 nombre = "UI"
 color = "#1ABC9C"
 mentionable = true
-autoasignable = true
 
-# Opt-in de avisos: se pulsa el boton de #info-estudio. Es mencionable para las novedades.
+# Avisos opt-in: se pulsan en el panel de #info-estudio. Son mencionables (sin permisos).
 [[roles]]
 key = "novedades"
 nombre = "🔔 Novedades"
@@ -279,8 +285,34 @@ color = "#F1C40F"
 mentionable = true
 autoasignable = true
 
+[[roles]]
+key = "eventos"
+nombre = "🎉 Eventos"
+color = "#E91E63"
+mentionable = true
+autoasignable = true
+
+# Plataforma de juego (opcional, sin permisos, no mencionable).
+[[roles]]
+key = "movil"
+nombre = "📱 Móvil"
+color = "#95A5A6"
+autoasignable = true
+
+[[roles]]
+key = "pc"
+nombre = "💻 PC"
+color = "#3498DB"
+autoasignable = true
+
+[[roles]]
+key = "consola"
+nombre = "🎮 Consola"
+color = "#2ECC71"
+autoasignable = true
+
 # =====================================================================
-#  CATEGORIAS (orden: IMPORTANTE, COMUNIDAD, DESARROLLO, VOZ, EQUIPO, STAFF)
+#  CATEGORIAS (orden: IMPORTANTE, JUEGO, COMUNIDAD, VOZ, EQUIPO, STAFF, TICKETS)
 #  Solo EQUIPO y STAFF son privadas.
 #  Las categorias antiguas "📢 Anuncios", "🟥 Roblox" y "🛠️ Soporte" (keys cat_anuncios,
 #  cat_roblox, cat_soporte) ya no estan aqui: sus canales se mueven y el plan las lista como
@@ -296,15 +328,19 @@ overrides = [                      # visible para todos, solo lectura para @ever
   { objetivo = "administrador", permitir = ["send_messages"] },
 ]
 
+# El juego: publica. `{juego}` se sustituye por el nombre del juego en mayusculas ("EL JUEGO" si esta vacio).
 [[categorias]]
-key = "cat_comunidad"
-nombre = "💬 » COMUNIDAD"
+key = "cat_juego"
+nombre = "🎮 » {juego}"
 orden = 2
 
 [[categorias]]
-key = "cat_desarrollo"
-nombre = "💻 » DESARROLLO"
-orden = 3                          # publica
+key = "cat_comunidad"
+nombre = "💬 » COMUNIDAD"
+orden = 3
+
+# La categoria "💻 » DESARROLLO" (key cat_desarrollo) ya no esta aqui: sus canales se mueven a JUEGO y
+# EQUIPO y el plan la lista como vacia ("borrar a mano"). El bot nunca la borra.
 
 # Plantilla (orden 4): una categoria por juego. Ver mas abajo, junto a los canales.
 # Plantilla (orden 5): "🗄️ » ARCHIVO", solo lectura para todos. Ver mas abajo.
@@ -361,7 +397,7 @@ overrides = [
 # ]
 
 # =====================================================================
-#  CANALES (19 de texto/anuncios/foros + 2 de voz)
+#  CANALES (20 de texto/anuncios/foros + 2 de voz)
 # =====================================================================
 # --- 📌 » IMPORTANTE (solo lectura) ---
 [[canales]]
@@ -394,12 +430,70 @@ orden = 3
 key = "info_estudio"
 nombre = "ℹ️・info-estudio"
 categoria = "cat_estudio"
-tema = "Quiénes somos, guía para empezar, especialidades y avisos."
+tema = "Quiénes somos, guía para jugadores y roles."
 orden = 4
+
+# --- 🎮 » EL JUEGO (publica) ---
+# Solo lectura para @everyone; escriben Developer y Administrador (y el bot, por su override).
+[[canales]]
+key = "codigos"
+nombre = "🎁・códigos"
+categoria = "cat_juego"
+tema = "Códigos canjeables del juego."
+overrides = [
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+  { objetivo = "developer", permitir = ["send_messages"] },
+  { objetivo = "administrador", permitir = ["send_messages"] },
+]
+orden = 1
+
+# FORO nuevo (requiere Comunidad).
+[[canales]]
+key = "reportar_bugs"
+nombre = "🐛・reportar-bugs"
+tipo = "forum"
+categoria = "cat_juego"
+tema = "¿Algo falla? Crea una publicación con tu plataforma (móvil, PC o consola) y qué estabas haciendo."
+orden = 2
+
+# Se mueve desde COMUNIDAD. El nombre EXACTO "💡・sugerencias" es el que busca !sugerencia de EITO.
+[[canales]]
+key = "sugerencias"
+nombre = "💡・sugerencias"
+categoria = "cat_juego"
+tema = "Ideas para el juego. Usa !sugerencia <texto>."
+mover = true
+orden = 3
+
+# El foro de ayuda se mueve desde DESARROLLO. Un canal de texto no se convierte en foro, asi que el
+# #ayuda de texto antiguo NO se toca: el plan lo lista como "reemplazado, archivalo o borralo a mano".
+[[canales]]
+key = "ayuda"
+nombre = "❓・ayuda"
+tipo = "forum"
+reemplaza = "ayuda"
+categoria = "cat_juego"
+tema = "¿Tienes una duda? Crea una publicación con tu pregunta. ¿Algo privado? Abre un ticket en #🎫・soporte."
+mover = true
+orden = 4
+
+# Panel de tickets (lo publica !paneltickets). Solo lectura: se usa el boton, no se escribe.
+[[canales]]
+key = "soporte"
+nombre = "🎫・soporte"
+categoria = "cat_juego"
+tema = "¿Necesitas hablar en privado con el staff? Pulsa el botón del panel para abrir un ticket."
+overrides = [
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+]
+mover = true
+orden = 5
 
 # --- 💬 » COMUNIDAD ---
 # Existentes (no los creo yo): se adoptan SOLO para renombrarlos (`nombre_actual` = como se
 # llaman hoy) y se mueven. No se sincronizan: conservan sus permisos (los de todos).
+# `🙋・presentaciones` (key presentaciones) y su mensaje ya no estan en el TOML: el plan los lista
+# en «A mano» (el bot nunca borra).
 [[canales]]
 key = "general"
 nombre = "💬・general"
@@ -409,34 +503,20 @@ categoria = "cat_comunidad"
 mover = true
 orden = 1
 
-[[canales]]
-key = "presentaciones"
-nombre = "🙋・presentaciones"
-categoria = "cat_comunidad"
-tema = "Cuéntanos quién eres y en qué trabajas."
-orden = 2
-
+# Antes "📸・showcase": se renombra el mismo canal (la key no cambia para no perder el mapeo).
 [[canales]]
 key = "showcase"
-nombre = "📸・showcase"
+nombre = "📸・capturas"
 categoria = "cat_comunidad"
-tema = "Enseña lo que estás haciendo: capturas, clips y proyectos propios."
-orden = 3
-
-# El nombre EXACTO "💡・sugerencias" es el que busca !sugerencia de EITO para publicar ahí.
-[[canales]]
-key = "sugerencias"
-nombre = "💡・sugerencias"
-categoria = "cat_comunidad"
-tema = "Ideas para el servidor y para el estudio. Usa !sugerencia <texto>."
-orden = 4
+tema = "Comparte capturas y clips del juego."
+orden = 2
 
 [[canales]]
 key = "comandos"
 nombre = "🤖・comandos"
 categoria = "cat_comunidad"
 tema = "Aquí se usan los comandos del bot."
-orden = 5
+orden = 3
 
 # El nombre EXACTO "📈・niveles" es el de EITO; ademas se mapea en [recursos.canales]. Solo lectura:
 # escribe el bot (avisos de nivel).
@@ -448,7 +528,7 @@ tema = "Avisos de subida de nivel. Mira el tuyo con !nivel y el ranking con !top
 overrides = [
   { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
 ]
-orden = 6
+orden = 4
 
 [[canales]]
 key = "no_relacionado"
@@ -457,40 +537,7 @@ nombre_actual = "no-relacionado"
 adoptar = true
 categoria = "cat_comunidad"
 mover = true
-orden = 7
-
-# --- 💻 » DESARROLLO (publica) ---
-# Antes en "🟥 Roblox" (creado por el bot): se renombra y se mueve.
-[[canales]]
-key = "scripting_luau"
-nombre = "🟥・scripting-luau"
-categoria = "cat_desarrollo"
-tema = "Scripting en Luau."
-mover = true
-orden = 1
-
-# FORO nuevo. Un canal de texto no se convierte en foro, asi que se crea uno nuevo y el
-# #ayuda actual NO se toca: el plan lo lista como "reemplazado, archívalo o bórralo a mano".
-# Requiere Comunidad.
-[[canales]]
-key = "ayuda"
-nombre = "❓・ayuda"
-tipo = "forum"
-reemplaza = "ayuda"
-categoria = "cat_desarrollo"
-tema = "¿Tienes una duda? Crea una publicación con tu pregunta. ¿Algo privado? Abre un ticket en #🎫・soporte."
-orden = 2
-
-# Panel de tickets (lo publica !paneltickets). Solo lectura: se usa el boton, no se escribe.
-[[canales]]
-key = "soporte"
-nombre = "🎫・soporte"
-categoria = "cat_desarrollo"
-tema = "¿Necesitas hablar en privado con el staff? Pulsa el botón del panel para abrir un ticket."
-overrides = [
-  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
-]
-orden = 3
+orden = 5
 
 # --- 🔊 » VOZ (publica) ---
 [[canales]]
@@ -523,6 +570,16 @@ mover = true
 sincronizar_permisos = true
 orden = 2
 
+# Antes en DESARROLLO (publico): pasa al equipo y se SINCRONIZA con la categoria (privado).
+[[canales]]
+key = "scripting_luau"
+nombre = "🟥・scripting-luau"
+categoria = "cat_equipo"
+tema = "Scripting en Luau."
+mover = true
+sincronizar_permisos = true
+orden = 3
+
 # Voz privada del equipo (el canal de voz publico para la comunidad es "🔊 General", en VOZ).
 # Sin renombrar: conserva su nombre actual.
 [[canales]]
@@ -532,7 +589,7 @@ tipo = "voice"
 categoria = "cat_equipo"
 mover = true
 sincronizar_permisos = true
-orden = 3
+orden = 4
 
 # TODO: un canal por proyecto activo, aqui en EQUIPO. La organización de GitHub no tiene
 # repositorios públicos (consulta del 2026-10-18), así que no hay ninguno que listar todavía.
@@ -604,7 +661,7 @@ orden = 3
 
 # =====================================================================
 #  MENSAJES (los publica y mantiene el bot; las menciones no hacen ping)
-#  #reglas: solo las reglas. #info-estudio: info, guia y botones de especialidad.
+#  #reglas: solo las reglas. #info-estudio: info del estudio, guia para jugadores y panel de roles.
 #  Si cambias el canal de un mensaje ya publicado, se publica en el nuevo y se BORRA el
 #  antiguo (solo si es del bot y esta mapeado).
 # =====================================================================
@@ -615,8 +672,9 @@ titulo = "📜 Reglas"
 descripcion = """1️⃣ **Respeto ante todo.** Nada de insultos, acoso ni discriminación.
 2️⃣ **Sin spam ni publicidad.** Nada de enlaces sospechosos ni invitaciones a otros servidores sin permiso del staff.
 3️⃣ **No publiques código ni assets ajenos sin permiso** de su autor. Si algo no es tuyo, cita la fuente o no lo subas.
-4️⃣ **Usa cada canal para su tema:** dudas en {canal:ayuda}, tus trabajos en {canal:showcase}, ideas en {canal:sugerencias}, comandos del bot en {canal:comandos}, charla libre en {canal:general} y {canal:no_relacionado}.
+4️⃣ **Usa cada canal para su tema:** dudas en {canal:ayuda}, tus capturas en {canal:showcase}, ideas en {canal:sugerencias}, comandos del bot en {canal:comandos}, charla libre en {canal:general} y {canal:no_relacionado}.
 5️⃣ **Respeta al staff.** Si no estás de acuerdo con una decisión, habla con ellos por privado.
+6️⃣ **No uses ni compartas exploits o hacks.** Si encuentras un bug, repórtalo en {canal:reportar_bugs}; no lo abuses.
 
 ⚖️ Incumplir las reglas puede acabar en aviso, silencio, expulsión o baneo."""
 color = "#E74C3C"
@@ -625,49 +683,44 @@ color = "#E74C3C"
 key = "msg_info_estudio"
 canal = "info_estudio"
 titulo = "👻 Phantom Shadows Studios"
-descripcion = """Somos un estudio de desarrollo centrado en **Roblox** y otros proyectos tecnológicos.
-
-🔗 **GitHub:** https://github.com/Phantom-Shadows-Studios"""
+descripcion = "Somos un estudio independiente que crea experiencias en **Roblox**."
 color = "#5865F2"
+# Los campos con `solo_si` solo salen si ese dato de [juego] esta rellenado.
+campos = [
+  { nombre = "🎮 El juego", valor = "{juego.titulo}", solo_si = "juego.nombre" },
+  { nombre = "👥 Grupo de Roblox", valor = "{juego.enlace_grupo}", solo_si = "juego.enlace_grupo" },
+  { nombre = "🤝 ¿Quieres unirte al equipo?", valor = "Abre un ticket en {canal:soporte} y cuéntanos qué sabes hacer." },
+]
+# GitHub (ahora no se muestra): "🔗 **GitHub:** https://github.com/Phantom-Shadows-Studios"
 
 [[mensajes]]
 key = "msg_guia"
 canal = "info_estudio"
-titulo = "🧭 Guía para nuevos integrantes"
-descripcion = """¡Bienvenido/a! Para empezar:
-
-📜 Lee {canal:reglas}.
-🙋 Preséntate en {canal:presentaciones} y charla en {canal:general}.
-🎨 Enseña lo que haces en {canal:showcase}.
-💻 Scripting de Roblox en {canal:scripting_luau}.
-❓ ¿Dudas? Crea una publicación en {canal:ayuda}.
-🎫 ¿Algo privado? Abre un ticket en {canal:soporte}.
-📈 Sube de nivel hablando: mira el tuyo con `!nivel` y el ranking con `!top`.
-🎭 Elige tus especialidades y avisos con los botones de abajo."""
+titulo = "🧭 Guía para jugadores"
+campos = [
+  { nombre = "1️⃣ Empieza aquí", valor = "Lee {canal:reglas} y elige tus roles abajo." },
+  { nombre = "🎮 El juego", valor = "Novedades en {canal:anuncios}, códigos en {canal:codigos}, ideas en {canal:sugerencias}." },
+  { nombre = "🐛 ¿Algo falla?", valor = "Publícalo en {canal:reportar_bugs} con tu plataforma y qué estabas haciendo." },
+  { nombre = "🆘 Ayuda", valor = "Dudas en {canal:ayuda}; algo privado, abre un ticket en {canal:soporte}." },
+  { nombre = "💬 Comunidad", valor = "Charla en {canal:general}, comparte capturas en {canal:showcase}, y usa `!nivel`, `!top` y `!ayuda` en {canal:comandos}." },
+]
 color = "#2ECC71"
 
+# Panel de roles. Fila 1: avisos (verde). Fila 2: plataforma (gris). `emoji`, `estilo` y `fila` son opcionales;
+# el custom_id de cada boton es pss::rol::<key del rol> (el de Novedades no cambia).
 [[mensajes]]
 key = "msg_especialidades"
 canal = "info_estudio"
-titulo = "🎭 Especialidades y avisos"
-descripcion = """Pulsa un botón para darte o quitarte un rol.
-
-**Scripter, Builder y UI** son tus especialidades.
-**🔔 Novedades** te menciona cuando publicamos novedades del estudio."""
+titulo = "🎭 Elige tus roles"
+descripcion = "Pulsa un botón para darte el rol; púlsalo otra vez para quitártelo."
 color = "#9B59B6"
-botones_roles = ["scripter", "builder", "ui", "novedades"]
-
-[[mensajes]]
-key = "msg_presentaciones"
-canal = "presentaciones"
-titulo = "🙋 Preséntate"
-descripcion = """Copia la plantilla, rellénala y publícala aquí:
-
-**Nombre o alias:**
-**Especialidad:** (Scripter, Builder, UI…)
-**En qué trabajas:**
-**GitHub o portfolio:**"""
-color = "#F1C40F"
+botones_roles = [
+  { rol = "novedades", estilo = "success", fila = 0, emoji = "🔔" },
+  { rol = "eventos", estilo = "success", fila = 0, emoji = "🎉" },
+  { rol = "movil", estilo = "secondary", fila = 1, emoji = "📱" },
+  { rol = "pc", estilo = "secondary", fila = 1, emoji = "💻" },
+  { rol = "consola", estilo = "secondary", fila = 1, emoji = "🎮" },
+]
 
 # Proyectos activos: descomentar cuando haya proyectos que mostrar. No se publica texto de relleno.
 # [[mensajes]]

@@ -280,7 +280,7 @@ async def test_al_entrar_con_anti_multicuentas_apagado_da_el_rol_y_bienvenida(co
     guild = FGuild()
     rol, bienvenida = types.SimpleNamespace(id=70, name="Miembro"), FTexto(80)
     guild.roles[70], guild.canales[80] = rol, bienvenida
-    cog.ids = {"miembro": 70, "bienvenida": 80, "reglas": 81, "info_estudio": 82, "presentaciones": 83}
+    cog.ids = {"miembro": 70, "bienvenida": 80, "reglas": 81, "info_estudio": 82}
     cog.bot.get_cog = lambda n: (_ for _ in ()).throw(AssertionError("no debe consultar el filtro"))
     miembro = FMiembro(guild)
     await cog.al_entrar(miembro)
@@ -288,7 +288,7 @@ async def test_al_entrar_con_anti_multicuentas_apagado_da_el_rol_y_bienvenida(co
     embed = bienvenida.enviados[0][1]["embed"]
     assert len(bienvenida.enviados) == 1 and "<@2>" in embed.description
     # enlaza a las reglas y a #info-estudio (la guia ya no esta en reglas) y a presentaciones
-    assert "<#81>" in embed.description and "<#82>" in embed.description and "<#83>" in embed.description
+    assert "<#81>" in embed.description and "<#82>" in embed.description and "presentaciones" not in embed.description
     assert "**#6**" in embed.description and embed.title == "👋 ¡Bienvenido/a a PSS!"
 
 
@@ -321,7 +321,7 @@ async def test_la_bienvenida_sale_del_toml_y_sin_toml_usa_el_texto_por_defecto(c
     cog.bot.get_cog = lambda n: None
     await cog.al_entrar(FMiembro(guild))
     descripcion = bienvenida.enviados[0][1]["embed"].description
-    assert "#📜・reglas" in descripcion and "#ℹ️・info-estudio" in descripcion and "#🙋・presentaciones" in descripcion
+    assert "#📜・reglas" in descripcion and "#ℹ️・info-estudio" in descripcion and "presentaciones" not in descripcion
     # sin [bienvenida] en el TOML: el texto por defecto, con las mismas variables
     bienvenida.enviados.clear()
     cog.config = replace(cog.config, bienvenida=None)
@@ -337,10 +337,46 @@ async def test_la_bienvenida_sale_del_toml_y_sin_toml_usa_el_texto_por_defecto(c
 
 def test_el_panel_de_especialidades_incluye_el_boton_de_novedades(cog):
     keys = [r.key for r in cog.config.roles_autoasignables()]
-    assert keys == ["scripter", "builder", "ui", "novedades"]
-    vista = cog.fabrica_vista(keys)
+    assert keys == ["novedades", "eventos", "movil", "pc", "consola"]
+    vista = cog.fabrica_vista(keys)                                    # forma antigua: keys sueltas, sin estilo ni fila
     assert [b.custom_id for b in vista.children] == [f"pss::rol::{k}" for k in keys]
-    assert [b.label for b in vista.children][-1] == "🔔 Novedades"
+    assert [b.label for b in vista.children][0] == "🔔 Novedades"
+    # con los botones del TOML: etiqueta sin el emoji (va aparte), estilo y fila
+    vista = cog.fabrica_vista(cog.config.mensaje("msg_especialidades").botones)
+    assert [b.custom_id for b in vista.children] == [f"pss::rol::{k}" for k in keys]       # el de Novedades no cambia
+    assert [b.label for b in vista.children] == ["Novedades", "Eventos", "Móvil", "PC", "Consola"]
+    assert [b.row for b in vista.children] == [0, 0, 1, 1, 1]
+    assert [b.style.name for b in vista.children] == ["success", "success", "secondary", "secondary", "secondary"]
+    assert [str(b.emoji) for b in vista.children] == ["🔔", "🎉", "📱", "💻", "🎮"]
+
+
+def test_se_registran_tambien_los_botones_de_los_roles_que_ya_no_se_autoasignan(cog):
+    vistas = []
+    cog.bot = types.SimpleNamespace(add_view=vistas.append)
+    cog._registrar_vista()
+    ids = {b.custom_id for v in vistas for b in v.children}
+    assert {"pss::rol::scripter", "pss::rol::builder", "pss::rol::ui", "pss::rol::novedades"} <= ids
+    assert "pss::rol::developer" not in ids                              # el Developer reutilizado no es de la config propia
+
+
+async def test_pulsar_un_boton_viejo_de_scripter_builder_o_ui_responde_que_ya_no_se_autoasigna(cog):
+    guild = FGuild()
+    cog.ids = {"scripter": 70}
+    guild.roles[70] = types.SimpleNamespace(id=70, name="Scripter", permissions=discord.Permissions.none())
+    respuestas = []
+
+    async def send_message(texto, ephemeral=False):
+        respuestas.append((texto, ephemeral))
+
+    usuario = FMiembro(guild)
+    inter = types.SimpleNamespace(guild=guild, user=usuario, response=types.SimpleNamespace(send_message=send_message))
+    for key in ("scripter", "builder", "ui"):
+        await cog.alternar_especialidad(inter, key)
+    assert usuario.agregados == []
+    assert [r[0] for r in respuestas] == [
+        "ℹ️ **Scripter** ya no se autoasigna con botones: lo da el equipo.",
+        "ℹ️ **Builder** ya no se autoasigna con botones: lo da el equipo.",
+        "ℹ️ **UI** ya no se autoasigna con botones: lo da el equipo."] and all(r[1] for r in respuestas)
 
 
 async def test_al_entrar_en_pss_expulsa_cuentas_nuevas_sin_dar_rol_ni_bienvenida(cog):
@@ -514,9 +550,9 @@ async def test_si_el_plan_cambio_entre_el_resumen_y_el_boton_no_se_aplica(cog, m
 
 async def test_boton_de_especialidad_no_da_roles_elevados(cog):
     guild = FGuild()
-    elevado = types.SimpleNamespace(id=70, name="Scripter", permissions=discord.Permissions(manage_roles=True))
+    elevado = types.SimpleNamespace(id=70, name="Novedades", permissions=discord.Permissions(manage_roles=True))
     guild.roles[70] = elevado
-    cog.ids = {"scripter": 70}
+    cog.ids = {"novedades": 70}
     respuestas = []
 
     async def send_message(texto, ephemeral=False):
@@ -524,11 +560,11 @@ async def test_boton_de_especialidad_no_da_roles_elevados(cog):
 
     usuario = FMiembro(guild)
     interaccion = types.SimpleNamespace(guild=guild, user=usuario, response=types.SimpleNamespace(send_message=send_message))
-    await cog.alternar_especialidad(interaccion, "scripter")
+    await cog.alternar_especialidad(interaccion, "novedades")
     assert usuario.agregados == [] and "no se puede autoasignar" in respuestas[0]
     # un rol de otro servidor tampoco
     interaccion.guild = FGuild(OTRO)
-    await cog.alternar_especialidad(interaccion, "scripter")
+    await cog.alternar_especialidad(interaccion, "novedades")
     assert usuario.agregados == [] and "no está disponible" in respuestas[1]
 
 

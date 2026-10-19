@@ -36,6 +36,8 @@ class FMensaje:
 
     async def edit(self, embed=None, view=None):
         self.embed = embed
+        if view is not None:
+            self.view = view
 
     async def delete(self):
         del self.canal.mensajes[self.id]

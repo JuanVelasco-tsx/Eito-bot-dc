@@ -209,7 +209,9 @@ def renderizar(mensaje, ids):
         ]
     if mensaje.pie:
         embed["footer"] = {"text": sustituir(mensaje.pie)}
-    return {"embed": embed, "botones": list(mensaje.botones_roles)}
+    return {"embed": embed,
+            "botones": [[b.rol, b.estilo, b.fila, b.emoji] if hasattr(b, "rol") else [b, "secondary", None, ""]
+                        for b in (mensaje.botones or mensaje.botones_roles)]}
 
 
 def hash_contenido(renderizado):
@@ -726,6 +728,14 @@ def _manuales(config, snap, estado, ids_cats, ids_canales, plan):
             f"«{por_id[canal_id].name}» queda **reemplazado** por el foro «{foro}»: no lo toco; "
             "archívalo o bórralo a mano"
         )
+    # Canales que el perfil creo o adopto y que YA NO estan en el TOML: el bot no los borra.
+    keys_config = {c.key for c in config.canales}
+    for key, reg in sorted(estado.items()):
+        if (reg.tipo == "canal" and key not in keys_config and reg.discord_id in por_id
+                and reg.discord_id not in ids_config and por_id[reg.discord_id].tipo != "categoria"):
+            plan.manuales.append(
+                f"Canal «{por_id[reg.discord_id].name}» ya no está en el TOML: bórralo a mano "
+                f"(con sus mensajes; luego `!pss olvidar {key}` quita su fila)")
     # Categorias que se quedan sin canales (no se borran).
     salen = {}
     for a in plan.acciones:

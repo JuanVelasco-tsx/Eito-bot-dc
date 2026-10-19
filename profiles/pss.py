@@ -94,10 +94,11 @@ def trocear(lineas, limite=LIMITE_EMBED):
 
 # --- Vistas -------------------------------------------------------------------------------
 class BotonEspecialidad(discord.ui.Button):
-    """Boton persistente que da o quita un rol de especialidad (custom_id pss::rol::<key>)."""
+    """Boton persistente que da o quita un rol (custom_id pss::rol::<key>)."""
 
-    def __init__(self, cog, key, etiqueta):
-        super().__init__(label=etiqueta, style=discord.ButtonStyle.secondary, custom_id=f"pss::rol::{key}")
+    def __init__(self, cog, key, etiqueta, estilo="secondary", emoji=None, fila=None):
+        super().__init__(label=etiqueta, style=discord.ButtonStyle[estilo], emoji=emoji or None,
+                         custom_id=f"pss::rol::{key}", row=fila)
         self.cog, self.key = cog, key
 
     async def callback(self, interaction: discord.Interaction):
@@ -105,12 +106,19 @@ class BotonEspecialidad(discord.ui.Button):
 
 
 class PanelEspecialidades(discord.ui.View):
-    def __init__(self, cog, keys):
+    """Botones de rol. `botones`: keys de rol (texto) o Boton (con estilo, fila y emoji)."""
+
+    def __init__(self, cog, botones):
         super().__init__(timeout=None)
-        for key in keys:
+        for b in botones:
+            key = b if isinstance(b, str) else b.rol
+            estilo, fila, emoji = ("secondary", None, "") if isinstance(b, str) else (b.estilo, b.fila, b.emoji)
             rol = cog.config.rol(key)
-            if rol is not None:
-                self.add_item(BotonEspecialidad(cog, key, rol.nombre))
+            if rol is None:
+                continue
+            # con emoji propio, la etiqueta es el nombre del rol sin ese emoji
+            etiqueta = rol.nombre[len(emoji):].strip() if emoji and rol.nombre.startswith(emoji) else rol.nombre
+            self.add_item(BotonEspecialidad(cog, key, etiqueta, estilo, emoji, fila))
 
 
 class ConfirmarAplicar(discord.ui.View):
@@ -174,9 +182,12 @@ class PerfilPSS(commands.Cog):
         self.bot.remove_check(self._bloquear_comando)
 
     def _registrar_vista(self):
+        # Los autoasignables, y tambien los roles que YA NO lo son (p. ej. Scripter/Builder/UI): un mensaje viejo
+        # con sus botones sigue recibiendo una respuesta en vez de «la interaccion fallo».
         keys = [r.key for r in self.config.roles_autoasignables()]
-        if keys:
-            self.bot.add_view(self.fabrica_vista(keys))
+        retirados = [r.key for r in self.config.roles if not r.autoasignable and not r.existing_id]
+        if keys or retirados:
+            self.bot.add_view(self.fabrica_vista(keys + retirados))
 
     def fabrica_vista(self, keys):
         return PanelEspecialidades(self, keys)
@@ -370,6 +381,10 @@ class PerfilPSS(commands.Cog):
     async def alternar_especialidad(self, interaction, key):
         guild = interaction.guild
         rol_cfg = self.config.rol(key)
+        if guild is not None and guild.id == self.config.guild_id and rol_cfg is not None and not rol_cfg.autoasignable:
+            await interaction.response.send_message(
+                f"ℹ️ **{rol_cfg.nombre}** ya no se autoasigna con botones: lo da el equipo.", ephemeral=True)
+            return
         if guild is None or guild.id != self.config.guild_id or rol_cfg is None or not rol_cfg.autoasignable:
             await interaction.response.send_message("❌ Este botón no está disponible.", ephemeral=True)
             return

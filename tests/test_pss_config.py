@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from profiles.pss_config import ConfigInvalida, DestinoRelease, cargar, parsear
+from profiles.pss_config import Boton, ConfigInvalida, DestinoRelease, cargar, parsear
 
 RUTA_REAL = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 
@@ -67,10 +67,10 @@ def test_estructura_publica_solo_equipo_y_staff_son_privadas():
     # Orden de las categorias y nombres con el formato "emoji » NOMBRE"
     cats = sorted(c.categorias, key=lambda x: x.orden)
     assert [x.nombre for x in cats] == [
-        "📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF", "🎫 » TICKETS"]
-    assert [x.key for x in cats] == ["cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff",
+        "📌 » IMPORTANTE", "🎮 » EL JUEGO", "💬 » COMUNIDAD", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF", "🎫 » TICKETS"]
+    assert [x.key for x in cats] == ["cat_estudio", "cat_juego", "cat_comunidad", "cat_voz", "cat_equipo", "cat_staff",
                                      "cat_tickets"]
-    for vieja in ("cat_anuncios", "cat_roblox", "cat_soporte", "cat_proyectos"):
+    for vieja in ("cat_anuncios", "cat_roblox", "cat_soporte", "cat_proyectos", "cat_desarrollo"):
         assert c.categoria(vieja) is None                  # fusionadas: sus canales se mueven
     privadas = {cat.key for cat in c.categorias
                 if any(o.objetivo == "@everyone" and "view_channel" in o.denegar for o in cat.overrides)}
@@ -84,8 +84,8 @@ def test_estructura_publica_solo_equipo_y_staff_son_privadas():
     todos = next(o for o in importante.overrides if o.objetivo == "@everyone")
     assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
     assert {o.objetivo for o in importante.overrides if "send_messages" in o.permitir} == {"developer", "administrador"}
-    for key in ("cat_comunidad", "cat_desarrollo", "cat_voz"):
-        assert c.categoria(key).overrides == ()
+    for key in ("cat_juego", "cat_comunidad", "cat_voz"):
+        assert c.categoria(key).overrides == ()                 # el juego es PUBLICO
 
 
 def test_el_formato_de_nombres_es_emoji_y_punto_medio():
@@ -116,11 +116,11 @@ def test_canales_segun_la_estructura_objetivo():
     c = cargar(RUTA_REAL)
     en = lambda cat: [x.nombre for x in sorted((x for x in c.canales if x.categoria == cat), key=lambda x: x.orden)]
     assert en("cat_estudio") == ["📜・reglas", "👋・bienvenida", "📣・anuncios", "ℹ️・info-estudio"]
-    assert en("cat_comunidad") == ["💬・general", "🙋・presentaciones", "📸・showcase", "💡・sugerencias", "🤖・comandos",
-                                  "📈・niveles", "🎲・no-relacionado"]
-    assert en("cat_desarrollo") == ["🟥・scripting-luau", "❓・ayuda", "🎫・soporte"]
+    assert en("cat_juego") == ["🎁・códigos", "🐛・reportar-bugs", "💡・sugerencias", "❓・ayuda", "🎫・soporte"]
+    assert en("cat_comunidad") == ["💬・general", "📸・capturas", "🤖・comandos", "📈・niveles", "🎲・no-relacionado"]
+    assert c.canal("presentaciones") is None and c.mensaje("msg_presentaciones") is None   # ya no estan en el TOML
     assert en("cat_voz") == ["🔊 General"]
-    assert en("cat_equipo") == ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"]
+    assert en("cat_equipo") == ["📌・info-importante", "🗓️・planificación-de-sesiones", "🟥・scripting-luau", "Reuniones"]
     assert en("cat_staff") == ["🛡️・registros", "🧪・pruebas-bot", "📁・tickets-log"]
     assert en("cat_tickets") == []                      # aqui el bot crea un canal por ticket
     # tipos: anuncios = news (se convierte el existente), ayuda = foro nuevo que reemplaza al canal de texto
@@ -129,7 +129,7 @@ def test_canales_segun_la_estructura_objetivo():
     assert ayuda.tipo == "forum" and ayuda.reemplaza == "ayuda" and not ayuda.adoptar and ayuda.nombre_actual is None
     assert c.canal("info_estudio").categoria == "cat_estudio" and not c.canal("info_estudio").mover
     # Equipo: existentes movidos y sincronizados, sin cambiar su tema
-    for key in ("info_importante", "planificacion_sesiones", "reuniones"):
+    for key in ("info_importante", "planificacion_sesiones", "reuniones", "scripting_luau"):
         assert c.canal(key).categoria == "cat_equipo" and c.canal(key).sincronizar_permisos, key
     assert c.canal("reuniones").nombre == "Reuniones" and not c.canal("reuniones").adoptar
     # Desarrollo y Comunidad son publicos: nada de sincronizar
@@ -141,13 +141,14 @@ def test_canales_segun_la_estructura_objetivo():
     assert c.canal("voz_general").tipo == "voice" and c.canal("voz_general").overrides == ()
     # hasta 24 canales de texto (texto + anuncios + foros), mas la voz
     no_voz = [x for x in c.canales if x.tipo != "voice"]
-    assert len(no_voz) == 19 <= 24 and len([x for x in c.canales if x.tipo == "voice"]) == 2
+    assert len(no_voz) == 20 <= 24 and len([x for x in c.canales if x.tipo == "voice"]) == 2
 
 
 def test_sugerencias_usa_el_nombre_exacto_que_busca_el_comando_de_eito(mod):
     c = cargar(RUTA_REAL)
     assert c.canal("sugerencias").nombre == mod.CANAL_SUGERENCIAS == "💡・sugerencias"
-    assert c.canal("sugerencias").tipo == "text" and c.canal("sugerencias").categoria == "cat_comunidad"
+    assert c.canal("sugerencias").tipo == "text" and c.canal("sugerencias").categoria == "cat_juego"
+    assert c.canal("sugerencias").mover                       # se mueve desde COMUNIDAD (mismo canal, mismo nombre)
     assert c.canal("comandos").nombre == "🤖・comandos"
 
 
@@ -159,7 +160,7 @@ def test_las_reglas_son_de_comunidad_publica():
     # #reglas solo tiene las reglas; info, guia y botones van en #info-estudio
     assert [m.key for m in c.mensajes if m.canal == "reglas"] == ["msg_reglas"]
     assert {m.key for m in c.mensajes if m.canal == "info_estudio"} == {"msg_info_estudio", "msg_guia", "msg_especialidades"}
-    assert c.mensaje("msg_especialidades").botones_roles == ("scripter", "builder", "ui", "novedades")
+    assert c.mensaje("msg_especialidades").botones_roles == ("novedades", "eventos", "movil", "pc", "consola")
     assert "{canal:ayuda}" in reglas
     assert "msg_proyectos_activos" not in {m.key for m in c.mensajes}
     assert "setup" in c.comandos_bloqueados and "pss" not in c.comandos_bloqueados
@@ -313,11 +314,8 @@ def test_fase_1_xp_bienvenida_y_comandos():
     # solo lectura para @everyone (el bot escribe gracias a su override automatico)
     todos = next(o for o in niveles.overrides if o.objetivo == "@everyone")
     assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
-    assert c.canal("presentaciones").categoria == "cat_comunidad" and c.canal("pruebas_bot").categoria == "cat_staff"
+    assert c.canal("pruebas_bot").categoria == "cat_staff"
     assert c.canal("bienvenida").categoria == "cat_estudio" and c.canal("bienvenida").overrides == ()
-    assert c.mensaje("msg_presentaciones").canal == "presentaciones"
-    for campo in ("Nombre", "Especialidad", "En qué trabajas", "GitHub o portfolio"):
-        assert campo in c.mensaje("msg_presentaciones").descripcion
     # bloqueados: sin nivel/top, con fundadores/importarniveles/darnivel
     assert c.comandos_bloqueados == {
         "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco", "panelroles", "reglas", "info",
@@ -378,14 +376,14 @@ def test_fase_2_recursos_apuntan_a_roles_canales_y_categoria_de_tickets():
 def test_fase_2_tickets_soporte_y_log():
     c = cargar(RUTA_REAL)
     soporte, log = c.canal("soporte"), c.canal("tickets_log")
-    assert soporte.nombre == "🎫・soporte" and soporte.categoria == "cat_desarrollo"
+    assert soporte.nombre == "🎫・soporte" and soporte.categoria == "cat_juego" and soporte.mover
     assert soporte.orden > c.canal("ayuda").orden                    # debajo del foro
     todos = next(o for o in soporte.overrides if o.objetivo == "@everyone")
     assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
     assert log.nombre == "📁・tickets-log" and log.categoria == "cat_staff" and log.overrides == ()
     assert "#🎫・soporte" in c.canal("ayuda").tema                    # el tema del foro lo enlaza
     assert c.categoria("cat_tickets").nombre == "🎫 » TICKETS"
-    assert "{canal:soporte}" in c.mensaje("msg_guia").descripcion
+    assert "{canal:soporte}" in " ".join(v for _n, v, _i in c.mensaje("msg_guia").campos)
 
 
 def test_fase_2_rangos_y_ayuda():
@@ -446,6 +444,137 @@ def test_fundador_automatico_es_un_evento_booleano_y_por_defecto_apagado():
     assert parsear(d).eventos.fundador_automatico is True
     d["eventos"]["fundador_automatico"] = "si"
     assert errores_de(d)
+
+
+# --- El juego: [juego], categoria, mensajes, panel de roles --------------------------------------------------
+def juego_real(**juego):
+    import tomllib
+    with RUTA_REAL.open("rb") as f:
+        d = tomllib.load(f)
+    d["juego"] = juego
+    return d
+
+
+def test_juego_vacio_la_categoria_se_llama_el_juego_y_la_info_omite_el_campo():
+    c = cargar(RUTA_REAL)
+    assert (c.juego.nombre, c.juego.enlace_juego, c.juego.enlace_grupo) == ("", "", "")
+    assert c.categoria("cat_juego").nombre == "🎮 » EL JUEGO"
+    assert [n for n, _v, _i in c.mensaje("msg_info_estudio").campos] == ["🤝 ¿Quieres unirte al equipo?"]
+    assert "GitHub" not in c.mensaje("msg_info_estudio").descripcion
+
+
+def test_juego_con_nombre_renombra_la_categoria_y_aparecen_sus_campos():
+    c = parsear(juego_real(nombre="Mi Juego", enlace_juego="https://www.roblox.com/games/1/x",
+                           enlace_grupo="https://www.roblox.com/communities/2/y"))
+    assert c.categoria("cat_juego").nombre == "🎮 » MI JUEGO"
+    campos = {n: v for n, v, _i in c.mensaje("msg_info_estudio").campos}
+    assert campos["🎮 El juego"] == "[Mi Juego](https://www.roblox.com/games/1/x)"
+    assert campos["👥 Grupo de Roblox"] == "https://www.roblox.com/communities/2/y"
+    assert list(campos)[-1] == "🤝 ¿Quieres unirte al equipo?"
+
+
+def test_juego_con_nombre_sin_enlaces_y_con_solo_el_grupo():
+    c = parsear(juego_real(nombre="Mi Juego"))
+    campos = {n: v for n, v, _i in c.mensaje("msg_info_estudio").campos}
+    assert campos["🎮 El juego"] == "**Mi Juego**" and "👥 Grupo de Roblox" not in campos
+    c = parsear(juego_real(enlace_grupo="https://roblox.com/communities/2/y"))      # sin nombre: no hay campo del juego
+    campos = {n for n, _v, _i in c.mensaje("msg_info_estudio").campos}
+    assert "🎮 El juego" not in campos and "👥 Grupo de Roblox" in campos
+    assert c.categoria("cat_juego").nombre == "🎮 » EL JUEGO"
+
+
+@pytest.mark.parametrize("malo", [
+    "http://www.roblox.com/games/1", "https://roblox.com.evil.com/games/1", "https://evil.com/roblox.com",
+    "https://notroblox.com/games/1", "ftp://roblox.com/x", "www.roblox.com/games/1", "https://user:pw@www.roblox.com/x",
+    "https://www.roblox.com/ juego"])
+def test_los_enlaces_del_juego_deben_ser_https_de_roblox_com(malo):
+    for clave in ("enlace_juego", "enlace_grupo"):
+        assert f"juego.{clave}" in " | ".join(errores_de(juego_real(**{clave: malo})))
+
+
+@pytest.mark.parametrize("bueno", ["https://www.roblox.com/games/1", "https://roblox.com/x", "https://web.roblox.com/x?a=1"])
+def test_enlaces_validos_de_roblox(bueno):
+    assert parsear(juego_real(enlace_juego=bueno, enlace_grupo=bueno)).juego.enlace_juego == bueno
+
+
+def test_juego_claves_desconocidas_y_nombre_con_llaves():
+    assert "clave desconocida" in " | ".join(errores_de(juego_real(otro="x")))
+    assert "juego.nombre" in " | ".join(errores_de(juego_real(nombre="Mi {juego}")))
+
+
+def test_el_nombre_de_la_categoria_cumple_el_formato_aunque_el_juego_este_vacio_o_lleno():
+    for nombre in ("", "Mi Juego"):
+        cat = parsear(juego_real(nombre=nombre)).categoria("cat_juego").nombre
+        assert " » " in cat and cat.split(" » ")[1].isupper()
+
+
+def test_la_guia_para_jugadores_y_la_info():
+    c = cargar(RUTA_REAL)
+    info = c.mensaje("msg_info_estudio")
+    assert info.titulo == "👻 Phantom Shadows Studios"
+    assert info.descripcion == "Somos un estudio independiente que crea experiencias en **Roblox**."
+    assert "{canal:soporte}" in dict((n, v) for n, v, _i in info.campos)["🤝 ¿Quieres unirte al equipo?"]
+    guia = c.mensaje("msg_guia")
+    assert guia.titulo == "🧭 Guía para jugadores" and guia.descripcion == ""
+    assert [n for n, _v, _i in guia.campos] == ["1️⃣ Empieza aquí", "🎮 El juego", "🐛 ¿Algo falla?", "🆘 Ayuda", "💬 Comunidad"]
+    assert not any(i for _n, _v, i in guia.campos)                      # ninguno en linea
+    texto = " ".join(v for _n, v, _i in guia.campos)
+    for ref in ("reglas", "anuncios", "codigos", "sugerencias", "reportar_bugs", "ayuda", "soporte", "general",
+                "showcase", "comandos"):
+        assert "{canal:" + ref + "}" in texto, ref
+    assert "`!nivel`, `!top` y `!ayuda`" in texto
+
+
+def test_la_regla_del_juego_y_la_bienvenida_sin_presentaciones():
+    c = cargar(RUTA_REAL)
+    assert "No uses ni compartas exploits o hacks. Si encuentras un bug, repórtalo en {canal:reportar_bugs}; no lo abuses." in \
+        c.mensaje("msg_reglas").descripcion.replace("**", "")
+    assert "{canal:reglas}" in c.bienvenida.descripcion and "{canal:info_estudio}" in c.bienvenida.descripcion
+    assert "presentaciones" not in c.bienvenida.descripcion
+
+
+def test_roles_del_equipo_sin_boton_y_roles_nuevos_de_avisos_y_plataforma():
+    c = cargar(RUTA_REAL)
+    for key in ("scripter", "builder", "ui"):
+        assert not c.rol(key).autoasignable and c.rol(key).permisos == ()
+    assert [r.key for r in c.roles_autoasignables()] == ["novedades", "eventos", "movil", "pc", "consola"]
+    eventos = c.rol("eventos")
+    assert eventos.nombre == "🎉 Eventos" and eventos.mentionable and eventos.permisos == ()
+    for key, nombre in (("movil", "📱 Móvil"), ("pc", "💻 PC"), ("consola", "🎮 Consola")):
+        assert c.rol(key).nombre == nombre and c.rol(key).permisos == () and not c.rol(key).mentionable, key
+
+
+def test_el_panel_de_roles_filas_estilos_y_emojis():
+    c = cargar(RUTA_REAL)
+    panel = c.mensaje("msg_especialidades")
+    assert panel.titulo == "🎭 Elige tus roles"
+    assert panel.descripcion == "Pulsa un botón para darte el rol; púlsalo otra vez para quitártelo."
+    assert [(b.rol, b.estilo, b.fila, b.emoji) for b in panel.botones] == [
+        ("novedades", "success", 0, "🔔"), ("eventos", "success", 0, "🎉"),
+        ("movil", "secondary", 1, "📱"), ("pc", "secondary", 1, "💻"), ("consola", "secondary", 1, "🎮")]
+
+
+def test_botones_con_emoji_estilo_y_fila_son_opcionales_y_se_validan():
+    d = datos()
+    d["roles"][0]["autoasignable"] = True
+    d["mensajes"][0]["botones_roles"] = ["miembro"]                     # forma antigua: lista de keys
+    b = parsear(d).mensaje("msg").botones
+    assert b[0].rol == "miembro" and (b[0].estilo, b[0].fila, b[0].emoji) == ("secondary", None, "")
+    d["mensajes"][0]["botones_roles"] = [{"rol": "miembro", "estilo": "danger", "fila": 2, "emoji": "🔥"}]
+    assert parsear(d).mensaje("msg").botones[0] == Boton("miembro", "danger", 2, "🔥")
+    for malo, trozo in (({"rol": "miembro", "estilo": "rojo"}, "estilo"), ({"rol": "miembro", "fila": 5}, "fila"),
+                        ({"rol": "miembro", "emoji": "abc"}, "emoji"), ({"rol": "miembro", "x": 1}, "clave desconocida"),
+                        ({"estilo": "success"}, "obligatorio"), (7, "debe ser")):
+        d["mensajes"][0]["botones_roles"] = [malo]
+        assert trozo in " | ".join(errores_de(d)), malo
+    d["mensajes"][0]["botones_roles"] = [{"rol": "miembro", "fila": 0}] * 6
+    assert "maximo 5" in " | ".join(errores_de(d))
+
+
+def test_campo_con_solo_si_desconocido_es_un_error():
+    d = datos()
+    d["mensajes"][0]["campos"] = [{"nombre": "a", "valor": "b", "solo_si": "juego.otra"}]
+    assert "solo_si" in " | ".join(errores_de(d))
 
 
 def test_claves_duplicadas_entre_tipos():

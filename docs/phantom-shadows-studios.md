@@ -7,7 +7,7 @@ Es una extensión aislada: `profiles/pss.py` + `profiles/pss.toml`, que se carga
 
 - Servidor: `1420403964746268684` · dueño: `668148837579227137`.
 - **PSS es un servidor público para la comunidad:** solo **🔒 » EQUIPO** y **🛡️ » STAFF** son
-  privados. **📌 » IMPORTANTE** es visible para todos en solo lectura; COMUNIDAD, DESARROLLO y
+  privados. **📌 » IMPORTANTE** es visible para todos en solo lectura; EL JUEGO, COMUNIDAD y
   VOZ son abiertos. Formato de nombres: categorías `emoji » NOMBRE`, canales `emoji・nombre`.
 - Todo lo del perfil actúa **solo** cuando `guild.id` coincide con el `guild_id` del TOML.
   En cualquier otro servidor `!pss` no responde y los eventos no cambian.
@@ -112,13 +112,20 @@ Tras aplicar, a mano:
 | `[[roles]]` | `key`, `nombre`, `color` (`"#RRGGBB"`), `hoist`, `mentionable`, `permisos` (flags de `discord.Permissions`), `existing_id`, `adoptar`, `permitir_admin`, `autoasignable`, `por_encima_del_bot` (el rol va a mano por encima del bot: el plan no avisa de la jerarquía; lo usa Propietario) |
 | `[[categorias]]` | `key`, `nombre`, `orden`, `existing_id`, `adoptar`, `overrides` |
 | `[[canales]]` | `key`, `nombre`, `nombre_actual` (solo con `adoptar`: cómo se llama hoy, para renombrarlo), `categoria`, `tipo` (`text`/`voice`/`news`/`forum`), `reemplaza` (solo foros), `tema`, `slowmode`, `limite_usuarios`, `orden`, `existing_id`, `adoptar`, `mover`, `sincronizar_permisos`, `overrides` |
-| `[[mensajes]]` | `key`, `canal`, `publicar`, `titulo`, `descripcion`, `color`, `campos`, `pie`, `botones_roles` |
+| `[[mensajes]]` | `key`, `canal`, `publicar`, `titulo`, `descripcion`, `color`, `campos` (`nombre`, `valor`, `inline`, y `solo_si = "juego.nombre"/"juego.enlace_juego"/"juego.enlace_grupo"`: el campo solo sale si ese dato está rellenado), `pie`, `botones_roles` (keys de rol, o tablas `{ rol, estilo = "primary"/"secondary"/"success"/"danger", fila = 0-4, emoji }`) |
+| `[juego]` | `nombre`, `enlace_juego`, `enlace_grupo` (todo opcional; los enlaces, https de roblox.com). Ver «El juego» en la sección 5 |
 
 - `overrides = [{ objetivo = "@everyone", permitir = [...], denegar = [...] }, ...]`; `objetivo`
   es `"@everyone"` o la key de un rol. Si denegar `view_channel`/`send_messages` a `@everyone`,
   el bot se añade solo un override propio (así sigue funcionando sin ser administrador).
-- Los mensajes admiten `{canal:key}` y `{rol:key}` (menciones sin ping). `botones_roles` solo
-  admite roles con `autoasignable = true` (sin permisos elevados).
+- Los mensajes admiten `{canal:key}` y `{rol:key}` (menciones sin ping), y `{juego.nombre}`,
+  `{juego.titulo}` (nombre enlazado), `{juego.enlace_juego}` y `{juego.enlace_grupo}`. Los nombres
+  de categoría admiten `{juego}` (el nombre en mayúsculas, o «EL JUEGO»). `botones_roles` solo
+  admite roles con `autoasignable = true` (sin permisos elevados); el `custom_id` de cada botón es
+  `pss::rol::<key del rol>`. Con `emoji` propio, la etiqueta es el nombre del rol sin ese emoji.
+- **Lo que quitas del TOML no se borra**: si un canal que el perfil creó ya no está en el TOML, el
+  plan lo lista en «🧹 A mano» (con su mensaje) y `!pss olvidar <key>` quita su fila cuando lo
+  borres. Igual con las categorías que quedan vacías. Las filas de canales ya borrados no hacen ruido.
 - **Tipos de canal.** `text` (texto), `voice`, `news` (anuncios) y `forum` (foro). `news` y
   `forum` **exigen la función COMMUNITY**: si el servidor no la tiene el plan los marca
   «bloqueado: activa Comunidad». Un `news` puede *crearse* o *convertir un canal de texto
@@ -177,7 +184,7 @@ archivo cambia en disco. `guild_id` no se puede cambiar con `recargar` (reinicia
 **Hace:** crea los roles, categorías y canales que faltan; mueve/sincroniza **solo** los
 canales existentes marcados `mover`/`sincronizar_permisos`; publica y mantiene los mensajes
 informativos: `#📜・reglas` solo tiene las reglas de comunidad pública, y `#ℹ️・info-estudio` la
-info del estudio, la guía para nuevos y el panel de especialidades con botones `pss::rol::<key>`;
+info del estudio, la guía para jugadores y el panel de roles con botones `pss::rol::<key>`;
 da el rol «Miembro» y manda una bienvenida a quien entra; encamina los logs de moderación al
 canal `🛡️・registros` de Staff; deja categorías y canales en el orden del TOML.
 
@@ -202,6 +209,27 @@ canal `🛡️・registros` de Staff; deja categorías y canales en el orden del
   categoría por juego** (`🎮 » [JUEGO]` con noticias = news, códigos, sugerencias y bug-report =
   foro) y **`🗄️ » ARCHIVO`** (solo lectura para todos).
 
+### El juego (`[juego]`) y la organización para jugadores
+La comunidad pública son los **jugadores** del juego de Roblox del estudio; el equipo trabaja en
+la parte privada. La categoría **`🎮 » EL JUEGO`** (justo después de `📌 » IMPORTANTE`) reúne
+`🎁・códigos` (solo lectura; escriben Developer y Administrador), `🐛・reportar-bugs` (foro),
+`💡・sugerencias` (el mismo canal de siempre, para que `!sugerencia` siga funcionando), el foro
+`❓・ayuda` y `🎫・soporte` (el panel de tickets). `🟥・scripting-luau` es ahora del equipo
+(`🔒 » EQUIPO`, sincronizado: privado).
+- **Rellenar el juego**: pon `nombre` (y, si quieres, `enlace_juego` y `enlace_grupo`) en `[juego]`,
+  despliega y `!pss aplicar`. El plan renombra la categoría a `🎮 » <NOMBRE>` y edita en su sitio
+  el mensaje `👻 Phantom Shadows Studios`, que añade los campos «🎮 El juego» (nombre enlazado) y
+  «👥 Grupo de Roblox». Con `nombre` vacío esos campos no salen y la categoría se llama `EL JUEGO`.
+- **Roles**: `Scripter`, `Builder` y `UI` son del equipo y **se dan a mano** (sin botón). El panel de
+  `ℹ️・info-estudio` (`🎭 Elige tus roles`) tiene fila 1 (verde): 🔔 Novedades y 🎉 Eventos; fila 2
+  (gris): 📱 Móvil, 💻 PC y 🎮 Consola. El botón de Novedades conserva su `custom_id`. Un botón
+  viejo de Scripter/Builder/UI que alguien pulse en un mensaje antiguo responde que «ya no se
+  autoasigna con botones».
+- La regla 6️⃣ prohíbe exploits y hacks y manda los bugs a `🐛・reportar-bugs`. La bienvenida enlaza a
+  `#📜・reglas` y `#ℹ️・info-estudio`.
+- **`🙋・presentaciones`** (y su mensaje) y la categoría **`💻 » DESARROLLO`** salieron del TOML: el
+  bot no los borra; el plan los lista en «🧹 A mano».
+
 ### Eventos de EITO en PSS (`[eventos]`)
 - `xp = true`: XP por mensajes (cooldown de 60 s, los comandos no cuentan), niveles, `!nivel` y
   `!top`. Los avisos de subida de nivel salen en `📈・niveles` (solo lectura; escribe el bot). **No
@@ -209,7 +237,7 @@ canal `🛡️・registros` de Staff; deja categorías y canales en el orden del
   solo da el aviso de nivel. `voz = false`: sin XP ni contadores por voz.
 - `bienvenida = "bienvenida"` y la sección `[bienvenida]`: el embed de bienvenida (título y
   descripción, con `{usuario}`, `{servidor}`, `{numero}`, `{canal:key}` y `{rol:key}`) sale del
-  TOML, no del código. Enlaza a `#📜・reglas`, `#ℹ️・info-estudio` y `#🙋・presentaciones`. Sin la
+  TOML, no del código. Enlaza a `#📜・reglas` y `#ℹ️・info-estudio`. Sin la
   sección, se usa un texto por defecto. La bienvenida de EITO no cambia.
 - `anti_multicuentas = true`: como PSS es público, **se aplica el filtro de cuentas nuevas** de EITO
   (expulsa cuentas con menos de `EDAD_MINIMA_DIAS` días, por defecto 7; esa variable es global,
@@ -249,7 +277,7 @@ recompensas por nivel y cruzar el nivel 10 solo da el aviso de nivel.)
 - **Logros**: no hay `🏅・logros`; se anuncian en `📈・niveles`. El texto dice el nombre del servidor
   (no «EITO») y apunta a `!antiguedad` en vez de `!perfil`.
 - **Tickets**: panel con `!paneltickets` (hay que ser administrador) en **`🎫・soporte`**, de solo
-  lectura y debajo del foro `❓・ayuda` (el bot no puede publicar mensajes sueltos dentro de un foro).
+  lectura y debajo del foro `❓・ayuda`, en `🎮 » EL JUEGO` (el bot no puede publicar mensajes sueltos dentro de un foro).
   El tema del foro lo menciona **como texto** (`#🎫・soporte`: los temas no admiten marcadores del
   TOML). Cada ticket es un canal en `🎫 » TICKETS` visible para quien lo abre, Propietario y
   Administrador; al cerrarlo la transcripción va a `📁・tickets-log` (STAFF). En PSS
@@ -388,7 +416,7 @@ bot; si no, el perfil no carga (o `recargar` conserva la versión anterior) y lo
 
 ## 8. Estructura resultante
 
-Visibilidad y quién escribe en cada categoría (17 canales de texto, anuncios y foros + 2 de voz). «Existente» =
+Visibilidad y quién escribe en cada categoría (20 canales de texto, anuncios y foros + 2 de voz). «Existente» =
 ya estaba en el servidor; «del bot» = lo creó el perfil antes. Los existentes se renombran con
 `adoptar = true` + `nombre_actual` (solo el nombre; nunca se cambia su tema). Las categorías
 `📢 Anuncios`, `🟥 Roblox` y `🛠️ Soporte` desaparecen del TOML: sus canales se mueven y quedan
@@ -396,32 +424,33 @@ vacías (a borrar a mano); `📌 Estudio` se reutiliza y pasa a llamarse `📌 �
 
 ```
 📌 » IMPORTANTE   [👁️ ven: todos · escriben: Developer + Administrador (+ bot)]
-  ├─ 📜・reglas             del bot, se renombra · solo las reglas
-  ├─ 👋・bienvenida         nuevo · el bot da aquí la bienvenida (texto en [bienvenida])
-  ├─ 📣・anuncios           del bot, se convierte en canal de ANUNCIOS y se mueve · requiere Comunidad
-  └─ ℹ️・info-estudio       nuevo · info del estudio, guía y botones (especialidades y 🔔 Novedades)
-💬 » COMUNIDAD    [👁️ ven: todos · escriben: todos]
-  ├─ 💬・general            existente (general), se renombra
-  ├─ 🙋・presentaciones     nuevo · con la plantilla (nombre, especialidad, en qué trabajas, GitHub/portfolio)
-  ├─ 📸・showcase           del bot, se renombra · cualquiera publica
-  ├─ 💡・sugerencias        nuevo · nombre exacto que usa !sugerencia
-  ├─ 🤖・comandos           nuevo
-  ├─ 📈・niveles            nuevo · SOLO LECTURA: avisos de nivel (escribe el bot)
-  └─ 🎲・no-relacionado     existente (no-relacionado), se renombra
-💻 » DESARROLLO   [👁️ ven: todos · escriben: todos]
-  ├─ 🟥・scripting-luau     del bot, se renombra y se mueve desde 🟥 Roblox
-  ├─ ❓・ayuda              FORO nuevo · el #ayuda de texto actual no se toca ("reemplazado") · requiere Comunidad
-  └─ 🎫・soporte            nuevo · SOLO LECTURA: aquí va el panel de tickets (!paneltickets)
+  ├─ 📜・reglas             del bot, se renombra · solo las reglas (con la del juego)
+  ├─ 👋・bienvenida         el bot da aquí la bienvenida (texto en [bienvenida])
+  ├─ 📣・anuncios           canal de ANUNCIOS · requiere Comunidad
+  └─ ℹ️・info-estudio       info del estudio, guía para jugadores y panel de roles
+🎮 » EL JUEGO     [👁️ ven y escriben: todos, salvo códigos]       (se llama «EL JUEGO» hasta rellenar [juego].nombre)
+  ├─ 🎁・códigos            SOLO LECTURA · escriben Developer + Administrador
+  ├─ 🐛・reportar-bugs      FORO nuevo · requiere Comunidad
+  ├─ 💡・sugerencias        se mueve desde COMUNIDAD · nombre exacto que usa !sugerencia
+  ├─ ❓・ayuda              FORO · se mueve desde DESARROLLO · el #ayuda de texto antiguo no se toca ("reemplazado")
+  └─ 🎫・soporte            SOLO LECTURA: aquí va el panel de tickets (!paneltickets)
+💬 » COMUNIDAD    [👁️ ven y escriben: todos]
+  ├─ 💬・general            existente, se renombra
+  ├─ 📸・capturas           antes 📸・showcase (el mismo canal; la key del TOML sigue siendo «showcase»)
+  ├─ 🤖・comandos
+  ├─ 📈・niveles            SOLO LECTURA: avisos de nivel (escribe el bot)
+  └─ 🎲・no-relacionado     existente, se renombra
 🔊 » VOZ          [👁️ ven y hablan: todos]
-  └─ 🔊 General             del bot
+  └─ 🔊 General
 🔒 » EQUIPO       [🔒 ven y escriben: Developer + Colaborador + Administrador (+ bot)]
-  ├─ 📌・info-importante    existente, se renombra y se sincroniza (privado)
-  ├─ 🗓️・planificación-de-sesiones   existente, se renombra y se sincroniza (privado)
-  └─ 🔊 Reuniones           voz existente, se sincroniza (privada); sin renombrar
+  ├─ 📌・info-importante    existente, sincronizado (privado)
+  ├─ 🗓️・planificación-de-sesiones   existente, sincronizado (privado)
+  ├─ 🟥・scripting-luau     antes público (DESARROLLO): ahora sincronizado con EQUIPO (privado)
+  └─ 🔊 Reuniones           voz existente, sincronizada (privada)
 🛡️ » STAFF        [🔒 ven y escriben: Propietario + Administrador (+ bot)]
-  ├─ 🛡️・registros          del bot, se renombra · logs de moderación
-  ├─ 🧪・pruebas-bot        nuevo · para probar comandos del bot
-  └─ 📁・tickets-log        nuevo · transcripciones de los tickets cerrados
+  ├─ 🛡️・registros          logs de moderación
+  ├─ 🧪・pruebas-bot        para probar comandos del bot
+  └─ 📁・tickets-log        transcripciones de los tickets cerrados
 🎫 » TICKETS      [🔒 ven y escriben: Propietario + Administrador (+ bot)]
   └─ (vacía)               aquí se crea un canal por cada ticket abierto
 ```
@@ -429,8 +458,9 @@ vacías (a borrar a mano); `📌 Estudio` se reutiliza y pasa a llamarse `📌 �
 Los roles y sus permisos están en `profiles/pss.toml` (Propietario sin permisos; Administrador
 con gestión del servidor pero sin `administrator`; Developer existente, sin tocar; Colaborador y
 Miembro con permisos básicos; Helper —sin permisos, lo da el staff a mano a quien ayuda en el foro—;
-Scripter, Builder, UI y 🔔 Novedades autoasignables con botón en `#info-estudio` y sin permisos;
-Novedades es mencionable; 🌱 Fundador, 🥉 Veterano, 🥈 Leyenda, 🥇 OG y 🔥 Activo del mes sin
+Scripter, Builder y UI del equipo (sin permisos, se dan a mano, sin botón); 🔔 Novedades, 🎉 Eventos,
+📱 Móvil, 💻 PC y 🎮 Consola autoasignables con botón en `#info-estudio` y sin permisos (Novedades y
+Eventos mencionables); 🌱 Fundador, 🥉 Veterano, 🥈 Leyenda, 🥇 OG y 🔥 Activo del mes sin
 permisos, como distinciones).
 Todo lo demás está comentado en el TOML como ejemplo.
 
@@ -455,7 +485,7 @@ mano al abrirlo a la comunidad:
 5. **Filtro de contenido multimedia explícito:** analizar el contenido de **todos los miembros**.
 6. **Onboarding** (Ajustes del servidor → Onboarding; requiere Comunidad): configura **solo los
    canales por defecto** (`#reglas`, `#info-estudio`, `#general`, `#showcase`…). **No añadas
-   preguntas que den roles:** las especialidades (Scripter, Builder, UI) y 🔔 Novedades se eligen con
+   preguntas que den roles:** los roles de avisos y de plataforma (🔔 Novedades, 🎉 Eventos, 📱/💻/🎮) se eligen con
    los botones del bot en `#info-estudio`, y el rol «Miembro» lo da el propio bot al entrar.
 
 ## 10. Desactivarlo y retirarlo por completo

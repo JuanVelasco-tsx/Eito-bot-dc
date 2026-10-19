@@ -26,15 +26,14 @@ from tests.pss_fakes import (
 RUTA = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 RUTA_V1 = Path(__file__).resolve().parent / "fixtures" / "pss_v1.toml"
 
-CATEGORIAS_FINAL = ["📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF",
+CATEGORIAS_FINAL = ["📌 » IMPORTANTE", "🎮 » EL JUEGO", "💬 » COMUNIDAD", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF",
                     "🎫 » TICKETS"]
 HIJOS_FINAL = {
     "📌 » IMPORTANTE": ["📜・reglas", "👋・bienvenida", "📣・anuncios", "ℹ️・info-estudio"],
-    "💬 » COMUNIDAD": ["💬・general", "🙋・presentaciones", "📸・showcase", "💡・sugerencias", "🤖・comandos",
-                      "📈・niveles", "🎲・no-relacionado"],
-    "💻 » DESARROLLO": ["🟥・scripting-luau", "❓・ayuda", "🎫・soporte"],
+    "🎮 » EL JUEGO": ["🎁・códigos", "🐛・reportar-bugs", "💡・sugerencias", "❓・ayuda", "🎫・soporte"],
+    "💬 » COMUNIDAD": ["💬・general", "📸・capturas", "🤖・comandos", "📈・niveles", "🎲・no-relacionado"],
     "🔊 » VOZ": ["🔊 General"],
-    "🔒 » EQUIPO": ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"],
+    "🔒 » EQUIPO": ["📌・info-importante", "🗓️・planificación-de-sesiones", "🟥・scripting-luau", "Reuniones"],
     "🛡️ » STAFF": ["🛡️・registros", "🧪・pruebas-bot", "📁・tickets-log"],
     "🎫 » TICKETS": [],
 }
@@ -120,10 +119,11 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     for ident in (administrador.id, DEVELOPER, colaborador.id):
         assert por_id[ident].pair()[0].view_channel is True
     assert por_id[BOT].pair()[0].view_channel and por_id[BOT].pair()[0].send_messages
-    for n in ("📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"):
-        assert c[n].category is equipo and c[n].overwrites == equipo.overwrites
+    for n in ("📌・info-importante", "🗓️・planificación-de-sesiones", "🟥・scripting-luau", "Reuniones"):
+        assert c[n].category is equipo and c[n].overwrites == equipo.overwrites       # scripting-luau, ahora privado
     # Publicas: sin overrides
-    for n in ("💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "💬・general", "❓・ayuda", "🔊 General"):
+    for n in ("🎮 » EL JUEGO", "💬 » COMUNIDAD", "🔊 » VOZ", "💬・general", "❓・ayuda", "🐛・reportar-bugs",
+              "💡・sugerencias", "🔊 General"):
         assert c[n].overwrites == {}
     # IMPORTANTE: solo lectura para @everyone; escriben developer y administrador (+ bot)
     importante = c["📌 » IMPORTANTE"]
@@ -134,7 +134,11 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     assert c["🛡️・registros"].overwrites == c["🛡️ » STAFF"].overwrites
     # Fase 1: bienvenida en IMPORTANTE (solo lectura), presentaciones publica, niveles solo lectura, pruebas-bot en Staff
     assert c["👋・bienvenida"].overwrites == importante.overwrites
-    assert c["🙋・presentaciones"].overwrites == {}
+    # el juego: #códigos de solo lectura (escriben Developer y Administrador); la categoria, publica
+    codigos = {getattr(e, "id", None): o for e, o in c["🎁・códigos"].overwrites.items()}
+    assert codigos[G].pair()[1].send_messages is True and codigos[DEVELOPER].pair()[0].send_messages is True
+    assert BOT in codigos and c["🐛・reportar-bugs"].tipo == "forum" and c["❓・ayuda"].tipo == "forum"
+    assert c["🎮 » EL JUEGO"].name == "🎮 » EL JUEGO"
     niveles = {getattr(e, "id", None): o for e, o in c["📈・niveles"].overwrites.items()}
     assert niveles[G].pair()[1].send_messages is True and BOT in niveles and DEVELOPER not in niveles
     assert c["🧪・pruebas-bot"].overwrites == c["🛡️ » STAFF"].overwrites
@@ -153,12 +157,11 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     novedades = next(r for r in srv.roles if r.name == "🔔 Novedades")
     assert helper.permissions.value == 0 and helper.hoist and not helper.mentionable
     assert novedades.mentionable and novedades.permissions.value == 0
-    assert [m.embed.title for m in c["🙋・presentaciones"].mensajes.values()] == ["🙋 Preséntate"]
 
     # Mensajes: #reglas solo las reglas; info, guia y botones en #info-estudio
     assert [m.embed.title for m in c["📜・reglas"].mensajes.values()] == ["📜 Reglas"]
     assert [m.embed.title for m in c["ℹ️・info-estudio"].mensajes.values()] == [
-        "👻 Phantom Shadows Studios", "🧭 Guía para nuevos integrantes", "🎭 Especialidades y avisos"]
+        "👻 Phantom Shadows Studios", "🧭 Guía para jugadores", "🎭 Elige tus roles"]
     assert list(c["ℹ️・info-estudio"].mensajes.values())[2].view is not None      # panel con botones
     regla = next(iter(c["📜・reglas"].mensajes.values()))
     assert f"<#{c['❓・ayuda'].id}>" in regla.embed.description               # menciones resueltas al foro
@@ -312,7 +315,7 @@ async def test_renombrar_un_recurso_ya_mapeado_lo_edita_y_no_crea_un_duplicado(g
     srv = await aplicar_v1(guardado)
     config = cargar(RUTA)
     ids_antes = {k: guardado[k].discord_id for k in
-                 ("cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff",
+                 ("cat_estudio", "cat_comunidad", "cat_voz", "cat_equipo", "cat_staff",
                   "reglas", "anuncios", "showcase", "scripting_luau", "voz_general", "registros",
                   "general", "no_relacionado", "info_importante", "planificacion_sesiones")}
     plan = plan_de(srv, config, guardado)
@@ -325,8 +328,8 @@ async def test_renombrar_un_recurso_ya_mapeado_lo_edita_y_no_crea_un_duplicado(g
     assert a["reglas"].cambios["nombre"] == "📜・reglas"
     assert {k for k, x in a.items() if x.op == "crear"} == {
         "info_estudio", "sugerencias", "comandos", "ayuda",                        # de la reorganizacion
-        "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades",   # de la Fase 1
-        "msg_presentaciones",
+        "bienvenida", "niveles", "pruebas_bot", "helper", "novedades",   # de la Fase 1
+        "cat_juego", "codigos", "reportar_bugs", "eventos", "movil", "pc", "consola",    # del juego
         "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log",                                 # de la Fase 2
         "voz_activa"}                                                    # de la Fase 3
 
@@ -390,7 +393,7 @@ async def test_los_mensajes_que_cambian_de_canal_se_republican_y_se_borra_el_ant
     assert res.fallos == []
     info = srv.canales[guardado["info_estudio"].discord_id]
     assert [m.embed.title for m in info.mensajes.values()] == [
-        "👻 Phantom Shadows Studios", "🧭 Guía para nuevos integrantes", "🎭 Especialidades y avisos"]
+        "👻 Phantom Shadows Studios", "🧭 Guía para jugadores", "🎭 Elige tus roles"]
     for key in ("msg_info_estudio", "msg_guia", "msg_especialidades"):
         assert antiguos[key] not in reglas.mensajes                     # el antiguo del bot, borrado
         assert guardado[key].canal_id == info.id                        # y mapeado al canal nuevo

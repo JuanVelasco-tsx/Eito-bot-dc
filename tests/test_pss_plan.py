@@ -550,3 +550,28 @@ def test_un_mensaje_que_menciona_un_recurso_bloqueado_no_se_publica_a_medias():
     a = accion(calcular_plan(cfg, snap(), {}, {}), "msg")                      # sin Comunidad: el foro esta bloqueado
     assert a.op == "bloqueado" and "foro" in a.razon
     assert accion(calcular_plan(cfg, snap_comunidad(), {}, {}), "msg").op == "crear"
+
+
+# --- canales que el TOML ya no menciona: «A mano» (el bot no los borra) -----------------------------------------
+def test_un_canal_que_el_perfil_creo_y_ya_no_esta_en_el_toml_se_lista_a_mano():
+    c = config(canales=[{"key": "general", "nombre": "general", "categoria": "cat_pub"}], mensajes=[])
+    cat = SCanal(30, "Publica", "categoria")
+    viejo, general = SCanal(41, "🙋・presentaciones", "text", 30), SCanal(42, "general", "text", 30)
+    estado = {"presentaciones": Registro("canal", 41, creado=True), "general": Registro("canal", 42, creado=True),
+              "msg_presentaciones": Registro("mensaje", 900, 41, "h", True)}
+    plan = calcular_plan(c, snap(canales=[cat, viejo, general]), estado, {})
+    linea = [m for m in plan.manuales if "presentaciones" in m]
+    assert len(linea) == 1 and "ya no está en el TOML: bórralo a mano" in linea[0]
+    assert "`!pss olvidar presentaciones`" in linea[0]
+    assert not any("general" in m for m in plan.manuales)                 # el que sigue en el TOML, no
+    assert "bórralo a mano" in "\n".join(lineas_plan(plan))
+
+
+def test_no_se_lista_lo_que_ya_no_existe_ni_lo_que_otra_key_sigue_usando_ni_las_categorias():
+    c = config(canales=[{"key": "nuevo", "nombre": "nuevo", "categoria": "cat_pub", "existing_id": 41}], mensajes=[])
+    cat = SCanal(30, "Publica", "categoria")
+    estado = {"frontend": Registro("canal", 999, creado=True),            # el dueño ya lo borro (fila huerfana)
+              "viejo": Registro("canal", 41, creado=True),                # la key cambio pero el canal sigue en el TOML
+              "cat_vieja": Registro("categoria", 31, creado=True)}
+    plan = calcular_plan(c, snap(canales=[cat, SCanal(41, "nuevo", "text", 30)]), estado, {})
+    assert not any("ya no está en el TOML" in m for m in plan.manuales)

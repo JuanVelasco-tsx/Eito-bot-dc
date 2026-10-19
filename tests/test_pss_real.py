@@ -6,6 +6,7 @@ export. Solo son sinteticos los miembros (el export trae recuentos) y los IDs de
 de #reglas (ver `_nota` del JSON)."""
 
 import tomllib
+import types
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,8 @@ from tests.test_pss_exec import (  # noqa: F401  (guardado es un fixture)
     CATEGORIAS_FINAL, HIJOS_FINAL, MINIMO_BOT, RUTA, acciones, guardado, plan_de, por_nombre,
 )
 
-SOBRANTES = ["🟥 Roblox", "📢 Anuncios", "🛠️ Soporte"]       # las categorias viejas que quedan vacias
+SOBRANTES = {"🟥 Roblox", "📢 Anuncios", "🛠️ Soporte"}        # las categorias viejas que quedan vacias
+DESARROLLO = {"💻 Desarrollo", "💻 » DESARROLLO"}            # y la de DESARROLLO (segun el TOML con el que se creo)
 
 
 @pytest.fixture
@@ -39,7 +41,9 @@ def real(guardado):
 
 async def aplicar_real(srv, config, estado, admin=True, permisos=8):
     plan = plan_de(srv, config, estado, admin, permisos)
-    return plan, await ejecutar(srv, plan, config, estado, lambda keys: object())
+    from profiles.pss import PanelEspecialidades
+    cog = types.SimpleNamespace(config=config)                      # lo unico que usa la vista para pintar los botones
+    return plan, await ejecutar(srv, plan, config, estado, lambda botones: PanelEspecialidades(cog, botones))
 
 
 # --- el fixture es el estado que describio el dueño ---------------------------------------------------------
@@ -74,15 +78,16 @@ def test_plan_real_con_comunidad(real):
     plan = plan_de(srv, cargar(RUTA), estado)
     a = acciones(plan)
     assert {k for k, x in a.items() if x.op == "crear"} == {
-        "info_estudio", "sugerencias", "comandos", "ayuda", "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades", "msg_presentaciones",
-        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log", "voz_activa"}
+        "info_estudio", "sugerencias", "comandos", "ayuda", "bienvenida", "niveles", "pruebas_bot", "helper", "novedades",
+        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log", "voz_activa",
+        "cat_juego", "codigos", "reportar_bugs", "eventos", "movil", "pc", "consola"}
     assert [x for x in plan.acciones if x.op == "bloqueado"] == []
     assert {k for k, x in a.items() if x.op == "omitir"} == {
         "propietario", "administrador", "developer", "colaborador", "miembro", "scripter", "builder", "ui",
         "voz_general", "reuniones"}
     actualizar = {k for k, x in a.items() if x.op == "actualizar"}
     assert actualizar == {
-        "cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff",
+        "cat_estudio", "cat_comunidad", "cat_voz", "cat_equipo", "cat_staff",
         "reglas", "anuncios", "general", "showcase", "no_relacionado", "scripting_luau", "info_importante",
         "planificacion_sesiones", "registros",
         "msg_reglas", "msg_info_estudio", "msg_guia", "msg_especialidades", "@orden"}
@@ -102,23 +107,29 @@ def test_plan_real_sin_comunidad(real):
     srv.features.clear()
     plan = plan_de(srv, cargar(RUTA), estado)
     a = acciones(plan)
-    assert {k for k, x in a.items() if x.op == "bloqueado"} == {"anuncios", "ayuda", "msg_reglas", "msg_guia"}
+    assert {k for k, x in a.items() if x.op == "bloqueado"} == {"anuncios", "ayuda", "reportar_bugs", "msg_reglas", "msg_guia"}
     assert "activa Comunidad" in a["anuncios"].razon and "activa Comunidad" in a["ayuda"].razon
     assert {k for k, x in a.items() if x.op == "crear"} == {
-        "info_estudio", "sugerencias", "comandos", "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper",
-        "novedades", "msg_presentaciones", "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log", "voz_activa"}
+        "info_estudio", "sugerencias", "comandos", "bienvenida", "niveles", "pruebas_bot", "helper", "novedades",
+        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log", "voz_activa",
+        "cat_juego", "codigos", "eventos", "movil", "pc", "consola"}
     texto = "\n".join(lineas_plan(plan))
     assert "reemplazado" not in texto and "Categoría «📢 Anuncios»" not in texto     # anuncios sigue ahi
     assert "Categoría «🟥 Roblox»: queda **vacía**" in texto
 
 
 # --- aplicar sobre el estado real: el orden --------------------------------------------------------------------
-async def comprobar_orden(srv):
+async def comprobar_orden(srv, detras=None):
+    """Las categorias del TOML en su orden y, DETRAS, las sobrantes. `detras`: canales que el TOML ya no
+    menciona y que se quedan al final de su categoria (el bot no los borra)."""
     cats, hijos = orden_actual(srv)
-    assert cats == CATEGORIAS_FINAL + SOBRANTES          # primero las del TOML, luego las sobrantes
+    n = len(CATEGORIAS_FINAL)
+    assert cats[:n] == CATEGORIAS_FINAL
+    assert SOBRANTES <= set(cats[n:]) <= SOBRANTES | DESARROLLO and len(set(cats[n:])) == len(cats[n:])
     for categoria, esperados in HIJOS_FINAL.items():
-        assert hijos[categoria] == esperados, categoria
-    assert hijos["🟥 Roblox"] == [] and hijos["📢 Anuncios"] == []
+        assert hijos[categoria] == esperados + (detras or {}).get(categoria, []), categoria
+    for vacia in (set(cats[n:]) - {"🛠️ Soporte"}):
+        assert hijos[vacia] == [], vacia
     assert hijos["🛠️ Soporte"] == ["ayuda"]               # el #ayuda de texto, sin tocar
 
 
@@ -137,7 +148,7 @@ async def test_aplicar_deja_el_orden_importante_comunidad_desarrollo_voz_equipo_
     # los mensajes: #reglas conserva el suyo (editado) y los otros 3 pasan a #info-estudio
     assert [m.embed.title for m in c["📜・reglas"].mensajes.values()] == ["📜 Reglas"]
     assert [m.embed.title for m in c["ℹ️・info-estudio"].mensajes.values()] == [
-        "👻 Phantom Shadows Studios", "🧭 Guía para nuevos integrantes", "🎭 Especialidades y avisos"]
+        "👻 Phantom Shadows Studios", "🧭 Guía para jugadores", "🎭 Elige tus roles"]
     # el bot en el mínimo de permisos: ya no hay nada que hacer
     plan = plan_de(srv, config, estado, admin=False, permisos=MINIMO_BOT)
     assert [x for x in plan.acciones if x.op != "omitir"] == []
@@ -150,7 +161,7 @@ async def test_aplicar_sin_comunidad_y_luego_con_ella_llega_al_mismo_orden(real)
     _, res = await aplicar_real(srv, config, estado)
     assert res.fallos == []
     cats, _ = orden_actual(srv)
-    assert cats[:5] == ["📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO"]
+    assert cats[:5] == ["📌 » IMPORTANTE", "🎮 » EL JUEGO", "💬 » COMUNIDAD", "🔊 » VOZ", "🔒 » EQUIPO"]
     assert "🛡️ » STAFF" in cats[:7]
     srv.features.add("COMMUNITY")
     _, res = await aplicar_real(srv, config, estado)
@@ -175,7 +186,7 @@ async def test_adoptar_de_un_canal_que_el_dueno_borro_no_lo_recrea(real):
     with RUTA.open("rb") as f:
         datos = tomllib.load(f)
     datos["canales"].append({"key": "frontend", "nombre": "🎨・frontend", "nombre_actual": "frontend",
-                             "adoptar": True, "mover": True, "categoria": "cat_desarrollo", "orden": 5})
+                             "adoptar": True, "mover": True, "categoria": "cat_comunidad", "orden": 9})
     config = parsear(datos)
     estado.pop("frontend", None)                              # sin siquiera la fila huerfana de la BD
     plan = plan_de(srv, config, estado)
@@ -186,19 +197,21 @@ async def test_adoptar_de_un_canal_que_el_dueno_borro_no_lo_recrea(real):
     res = await ejecutar(srv, plan, config, estado, lambda k: object())
     assert not any("frontend" in c.name for c in srv.canales.values()) and "frontend" not in estado
     assert not any(l[0].startswith("create") and "frontend" in str(l) for l in srv.llamadas)
-    # el resto sigue aplicandose: info-estudio, sugerencias, comandos, el foro, 4 canales de la Fase 1 y
-    # soporte, tickets-log y la categoria de tickets de la Fase 2
-    assert len(srv.canales) == antes + 11
+    # el resto sigue aplicandose: 13 canales y categorias nuevos (JUEGO, TICKETS y sus canales...)
+    assert len(srv.canales) == antes + 13
     assert res.fallos == []
 
 
-# --- Fase 3 sobre lo DESPLEGADO: el estado real + los pss.toml de las Fases 0, 1 y 2 aplicados -----------------------
+# --- El juego sobre lo DESPLEGADO: el estado real + los pss.toml de las Fases 0 a 3 aplicados ---------------------------
+FASE3 = Path(__file__).resolve().parent / "fixtures" / "pss_fase3.toml"
+
+
 @pytest.fixture
 async def desplegado(real):
-    """PSS tal como esta hoy: el export real al que se le aplicaron los pss.toml de las Fases 0, 1 y 2
+    """PSS tal como esta hoy: el export real al que se le aplicaron los pss.toml de las Fases 0, 1, 2 y 3
     (en cada paso el plan, con el bot en permisos minimos, da «coincide»)."""
     srv, estado = real
-    for ruta in (FASE0, FASE1, FASE2):
+    for ruta in (FASE0, FASE1, FASE2, FASE3):
         config = cargar(ruta)
         plan, res = await aplicar_real(srv, config, estado)
         assert res.fallos == [] and res.bloqueadas == []
@@ -206,26 +219,93 @@ async def desplegado(real):
     return srv, estado
 
 
-async def test_plan_de_la_fase_3_sobre_lo_desplegado(desplegado):
+async def test_plan_del_juego_sobre_lo_desplegado(desplegado):
     srv, estado = desplegado
     plan = plan_de(srv, cargar(RUTA), estado)
     a = acciones(plan)
-    assert {k for k, x in a.items() if x.op == "crear"} == {"voz_activa"}        # solo el rol: nada de Nivel 10
-    assert [k for k, x in a.items() if x.op in ("actualizar", "vincular", "bloqueado")] == []
-    assert not plan.coincide() and "voz_activa" in {x.key for x in plan.acciones if x.op == "crear"}
+    assert {k for k, x in a.items() if x.op == "crear"} == {
+        "cat_juego", "codigos", "reportar_bugs", "eventos", "movil", "pc", "consola"}
+    assert {k for k, x in a.items() if x.op == "actualizar"} == {
+        "sugerencias", "ayuda", "soporte", "showcase", "scripting_luau", "info_estudio",
+        "msg_reglas", "msg_info_estudio", "msg_guia", "msg_especialidades", "@orden"}
+    assert [x for x in plan.acciones if x.op == "bloqueado"] == []
+    assert a["scripting_luau"].cambios == {"mover": "cat_equipo", "sincronizar": True}      # pasa a ser privado
+    for key in ("sugerencias", "ayuda", "soporte"):
+        assert a[key].cambios["mover"] == "cat_juego", key
+    assert a["showcase"].cambios["nombre"] == "📸・capturas"
+    assert a["cat_comunidad"].op == "omitir"
+    # «A mano»: lo que el TOML ya no tiene (el bot no borra)
+    texto = "\n".join(lineas_plan(plan))
+    assert "Canal «🙋・presentaciones» ya no está en el TOML: bórralo a mano" in texto
+    assert "`!pss olvidar presentaciones`" in texto
+    assert "Categoría «💻 » DESARROLLO»: queda **vacía**; bórrala a mano" in texto
+    assert "«ayuda» queda **reemplazado**" in texto
+    # el nombre del juego esta vacio: la categoria se llama «EL JUEGO»
+    assert "🎮 » EL JUEGO" in texto
 
 
-async def test_aplicar_la_fase_3_sobre_lo_desplegado_deja_el_servidor_coincidiendo(desplegado):
+async def test_aplicar_el_juego_sobre_lo_desplegado_deja_el_servidor_coincidiendo(desplegado):
     srv, estado = desplegado
     config = cargar(RUTA)
     _, res = await aplicar_real(srv, config, estado)
     assert res.fallos == [] and res.bloqueadas == []
-    await comprobar_orden(srv)
-    rol = next(r for r in srv.roles if r.name == "🎧 Voz activa")
-    assert rol.permissions.value == 0 and not rol.mentionable and rol.id == estado["voz_activa"].discord_id
-    assert not any("Nivel 10" in r.name for r in srv.roles) and not any("nivel-10" in c.name for c in srv.canales.values())
+    await comprobar_orden(srv, detras={"💬 » COMUNIDAD": ["🙋・presentaciones"]})
+    c = por_nombre(srv)
+    assert c["🙋・presentaciones"].tipo == "text"                          # NO se borra
+    # lo que se mueve conserva su ID; scripting-luau queda privado (sincronizado con EQUIPO)
+    assert c["🟥・scripting-luau"].overwrites == c["🔒 » EQUIPO"].overwrites
+    assert c["💡・sugerencias"].category_id == c["🎮 » EL JUEGO"].id and c["❓・ayuda"].tipo == "forum"
+    # los mensajes de info-estudio se editan EN SU SITIO (mismos IDs)
+    info = list(c["ℹ️・info-estudio"].mensajes.values())
+    assert [m.embed.title for m in info] == ["👻 Phantom Shadows Studios", "🧭 Guía para jugadores", "🎭 Elige tus roles"]
+    assert not any("mensaje antiguo del bot borrado" in h for h in res.hechos)
+    # info: sin nombre del juego ni grupo, solo el campo del equipo
+    assert [f.name for f in info[0].embed.fields] == ["🤝 ¿Quieres unirte al equipo?"]
+    assert f"<#{c['🎫・soporte'].id}>" in info[0].embed.fields[0].value
+    # guia: 5 campos, ninguno en linea
+    guia = info[1].embed
+    assert [f.name for f in guia.fields] == ["1️⃣ Empieza aquí", "🎮 El juego", "🐛 ¿Algo falla?", "🆘 Ayuda", "💬 Comunidad"]
+    assert not any(f.inline for f in guia.fields)
+    assert f"<#{c['🎁・códigos'].id}>" in guia.fields[1].value and f"<#{c['🐛・reportar-bugs'].id}>" in guia.fields[2].value
+    assert f"<#{c['📸・capturas'].id}>" in guia.fields[4].value
+    # panel de roles: filas, estilos, emojis y el custom_id de Novedades intacto
+    panel = info[2]
+    assert panel.embed.description == "Pulsa un botón para darte el rol; púlsalo otra vez para quitártelo."
+    botones = panel.view.children
+    assert [b.custom_id for b in botones] == [f"pss::rol::{k}" for k in ("novedades", "eventos", "movil", "pc", "consola")]
+    assert [b.row for b in botones] == [0, 0, 1, 1, 1]
+    assert [b.style.name for b in botones] == ["success", "success", "secondary", "secondary", "secondary"]
+    assert [str(b.emoji) for b in botones] == ["🔔", "🎉", "📱", "💻", "🎮"]
+    assert [b.label for b in botones] == ["Novedades", "Eventos", "Móvil", "PC", "Consola"]
+    # las reglas: la del juego
+    reglas = list(c["📜・reglas"].mensajes.values())[0].embed.description
+    assert "6️⃣ **No uses ni compartas exploits o hacks.**" in reglas and f"<#{c['🐛・reportar-bugs'].id}>" in reglas
     plan = plan_de(srv, config, estado, admin=False, permisos=MINIMO_BOT)
     assert plan.coincide(), "\n".join(lineas_plan(plan))
     llamadas = list(srv.llamadas)
     await aplicar_real(srv, config, estado)
     assert srv.llamadas == llamadas
+
+
+async def test_al_rellenar_el_juego_se_renombra_la_categoria_y_se_actualizan_los_mensajes(desplegado):
+    srv, estado = desplegado
+    await aplicar_real(srv, cargar(RUTA), estado)
+    with RUTA.open("rb") as f:
+        datos = tomllib.load(f)
+    datos["juego"] = {"nombre": "Mi Juego", "enlace_juego": "https://www.roblox.com/games/123/Mi-Juego",
+                      "enlace_grupo": "https://www.roblox.com/communities/456/PSS"}
+    config = parsear(datos)
+    assert config.categoria("cat_juego").nombre == "🎮 » MI JUEGO"
+    plan = plan_de(srv, config, estado)
+    a = acciones(plan)
+    assert {k for k, x in a.items() if x.op != "omitir"} == {"cat_juego", "msg_info_estudio"}      # solo eso cambia
+    assert a["cat_juego"].cambios["nombre"] == "🎮 » MI JUEGO"
+    _, res = await aplicar_real(srv, config, estado)
+    assert res.fallos == []
+    c = por_nombre(srv)
+    assert "🎮 » MI JUEGO" in c and "🎮 » EL JUEGO" not in c
+    info = list(c["ℹ️・info-estudio"].mensajes.values())[0].embed
+    assert [f.name for f in info.fields] == ["🎮 El juego", "👥 Grupo de Roblox", "🤝 ¿Quieres unirte al equipo?"]
+    assert info.fields[0].value == "[Mi Juego](https://www.roblox.com/games/123/Mi-Juego)"
+    assert info.fields[1].value == "https://www.roblox.com/communities/456/PSS"
+    assert plan_de(srv, config, estado, admin=False, permisos=MINIMO_BOT).coincide()

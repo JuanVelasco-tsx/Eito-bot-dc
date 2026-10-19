@@ -269,7 +269,7 @@ async def ejecutar(guild, plan, config, estado, fabrica_vista, progreso=None):
         except PendienteDeId as e:
             raise _Falla(f"menciona «{e.args[0]}», que no existe") from None
         embed = discord.Embed.from_dict(renderizado["embed"])
-        vista = fabrica_vista(m.botones_roles) if m.botones_roles else None
+        vista = fabrica_vista(m.botones or m.botones_roles) if (m.botones or m.botones_roles) else None
         extra = {"view": vista} if vista is not None else {}
         h = hash_contenido(renderizado)
         reg = estado.get(m.key)

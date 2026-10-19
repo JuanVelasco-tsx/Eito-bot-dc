@@ -9,6 +9,7 @@ import difflib
 import re
 import tomllib
 import datetime as dt
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -126,6 +127,34 @@ class Canal:
 
 
 @dataclass(frozen=True)
+class Juego:
+    """[juego]: datos del juego de Roblox. Con `nombre` vacio la categoria se llama «EL JUEGO» y la info
+    omite el campo del juego; los enlaces son opcionales (https de roblox.com)."""
+    nombre: str = ""
+    enlace_juego: str = ""
+    enlace_grupo: str = ""
+
+    def titulo(self):
+        """El nombre del juego, enlazado si hay enlace."""
+        if self.nombre and self.enlace_juego:
+            return f"[{self.nombre}]({self.enlace_juego})"
+        return f"**{self.nombre}**" if self.nombre else ""
+
+
+ESTILOS_BOTON = ("primary", "secondary", "success", "danger")
+MAX_BOTONES_POR_FILA = 5
+
+
+@dataclass(frozen=True)
+class Boton:
+    """Un boton de rol de un mensaje: estilo, fila (0-4, None = automatica) y emoji opcionales."""
+    rol: str
+    estilo: str = "secondary"
+    fila: int | None = None
+    emoji: str = ""
+
+
+@dataclass(frozen=True)
 class Mensaje:
     key: str
     canal: str
@@ -135,7 +164,8 @@ class Mensaje:
     campos: tuple = ()                # ((nombre, valor, inline), ...)
     pie: str = ""
     publicar: bool = True
-    botones_roles: tuple = ()
+    botones_roles: tuple = ()         # keys de rol (en el orden de los botones)
+    botones: tuple = ()               # lo mismo con estilo/fila/emoji: tuple de Boton
 
 
 @dataclass(frozen=True)
@@ -222,6 +252,7 @@ class Config:
     bienvenida: Bienvenida | None = None
     rangos: Rangos = field(default_factory=Rangos)
     webhook: dict = field(default_factory=dict)      # destino -> DestinoRelease
+    juego: Juego = field(default_factory=Juego)
 
     def rol(self, key):
         return self._indice.get(("rol", key))
@@ -465,6 +496,70 @@ def _parsear_bienvenida(v, bruto, claves_canales, claves_roles):
     return Bienvenida(titulo, descripcion, v.color(b, "color", "bienvenida", defecto=0x2ECC71))
 
 
+CAMPOS_JUEGO = ("juego.nombre", "juego.enlace_juego", "juego.enlace_grupo")
+
+
+def _url_de_roblox(valor):
+    try:
+        u = urllib.parse.urlparse(valor)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower()
+    return (u.scheme == "https" and (host == "roblox.com" or host.endswith(".roblox.com"))
+            and not u.username and not u.password and not any(c.isspace() for c in valor))
+
+
+def _parsear_juego(v, bruto):
+    if bruto is None:
+        return Juego()
+    j = v.tabla(bruto, "juego")
+    v.desconocidas(j, {"nombre", "enlace_juego", "enlace_grupo"}, "juego")
+    nombre = v.texto(j, "nombre", "juego", maximo=50).strip()
+    if nombre and any(c in nombre for c in "{}\n"):
+        v.error("juego.nombre", "no puede llevar llaves ni saltos de linea")
+    enlaces = {}
+    for clave in ("enlace_juego", "enlace_grupo"):
+        valor = v.texto(j, clave, "juego", maximo=300).strip()
+        if valor and not _url_de_roblox(valor):
+            v.error(f"juego.{clave}", "debe ser una URL https de roblox.com (p. ej. https://www.roblox.com/games/123)")
+        enlaces[clave] = valor
+    return Juego(nombre, enlaces["enlace_juego"], enlaces["enlace_grupo"])
+
+
+def _parsear_botones(v, bruto, ruta):
+    """botones_roles: lista de keys de rol o de tablas {rol, estilo, fila, emoji}."""
+    if bruto is None:
+        return ()
+    if not isinstance(bruto, list):
+        v.error(ruta, "debe ser una lista de keys de rol o de tablas {rol, estilo, fila, emoji}")
+        return ()
+    botones, por_fila = [], {}
+    for i, b in enumerate(bruto):
+        rb = f"{ruta}[{i}]"
+        if isinstance(b, str):
+            botones.append(Boton(b))
+            continue
+        if not isinstance(b, dict):
+            v.error(rb, "debe ser la key de un rol o una tabla {rol, estilo, fila, emoji}")
+            continue
+        v.desconocidas(b, {"rol", "estilo", "fila", "emoji"}, rb)
+        estilo = v.texto(b, "estilo", rb, defecto="secondary") or "secondary"
+        if estilo not in ESTILOS_BOTON:
+            v.error(f"{rb}.estilo", f"debe ser uno de: {', '.join(ESTILOS_BOTON)}")
+        fila = v.entero(b, "fila", rb, minimo=0, maximo=4, defecto=-1) if "fila" in b else None
+        emoji = v.texto(b, "emoji", rb, maximo=64)
+        if emoji and (re.fullmatch(r"[\w ]+", emoji, flags=re.ASCII) or not discord.PartialEmoji.from_str(emoji).name):
+            v.error(f"{rb}.emoji", "emoji no valido (usa un emoji o <:nombre:id>)")
+        botones.append(Boton(v.texto(b, "rol", rb, requerido=True), estilo, fila, emoji))
+    for b in botones:
+        if b.fila is not None:
+            por_fila[b.fila] = por_fila.get(b.fila, 0) + 1
+    for fila, n in por_fila.items():
+        if n > MAX_BOTONES_POR_FILA:
+            v.error(ruta, f"la fila {fila} tiene {n} botones (maximo {MAX_BOTONES_POR_FILA})")
+    return tuple(botones)
+
+
 def _parsear_webhook(v, bruto, canales, claves_roles):
     if bruto is None:
         return {}
@@ -600,7 +695,11 @@ def parsear(datos):
     """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
     v = _Validador()
     raiz = v.tabla(datos, "(raiz)")
-    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "rangos", "webhook", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "rangos", "webhook", "juego", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+
+    # --- [juego] (antes que nada: los nombres de categoria y los mensajes lo usan) ---
+    juego = _parsear_juego(v, raiz.get("juego"))
+    nombre_juego = juego.nombre.upper() or "EL JUEGO"
 
     # --- [perfil] ---
     p = v.tabla(raiz.get("perfil", {}), "perfil")
@@ -650,7 +749,8 @@ def parsear(datos):
         key = v.texto(c, "key", ruta, requerido=True)
         ruta = f"categorias[{i}] '{key}'"
         categorias.append(Categoria(
-            key=key, nombre=v.texto(c, "nombre", ruta, requerido=True, maximo=MAX_NOMBRE),
+            key=key,
+            nombre=v.texto(c, "nombre", ruta, requerido=True, maximo=MAX_NOMBRE).replace("{juego}", nombre_juego),
             orden=v.entero(c, "orden", ruta), existing_id=v.entero(c, "existing_id", ruta),
             adoptar=v.booleano(c, "adoptar", ruta), overrides=_parsear_overrides(v, c, ruta),
         ))
@@ -697,6 +797,11 @@ def parsear(datos):
         ))
 
     # --- mensajes ---
+    def sub_juego(texto):
+        """Sustituye {juego.nombre}, {juego.titulo}, {juego.enlace_juego} y {juego.enlace_grupo}."""
+        return (texto.replace("{juego.nombre}", juego.nombre).replace("{juego.titulo}", juego.titulo())
+                .replace("{juego.enlace_juego}", juego.enlace_juego).replace("{juego.enlace_grupo}", juego.enlace_grupo))
+
     mensajes = []
     for i, m in enumerate(v.lista_de_tablas(raiz.get("mensajes"), "mensajes")):
         ruta = f"mensajes[{i}]"
@@ -713,20 +818,26 @@ def parsear(datos):
             v.error(f"{ruta}.campos", f"tiene {len(brutos)} campos (maximo {MAX_EMBED_CAMPOS})")
         for j, campo in enumerate(brutos):
             rc = f"{ruta}.campos[{j}]"
-            v.desconocidas(campo, {"nombre", "valor", "inline"}, rc)
+            v.desconocidas(campo, {"nombre", "valor", "inline", "solo_si"}, rc)
+            solo_si = v.texto(campo, "solo_si", rc)
+            if solo_si and solo_si not in CAMPOS_JUEGO:
+                v.error(f"{rc}.solo_si", f"debe ser uno de: {', '.join(sorted(CAMPOS_JUEGO))}")
+            elif solo_si and not getattr(juego, solo_si.split(".", 1)[1]):
+                continue                          # el dato del juego no esta configurado: el campo se omite
             campos.append((
-                v.texto(campo, "nombre", rc, requerido=True, maximo=MAX_CAMPO_NOMBRE),
-                v.texto(campo, "valor", rc, requerido=True, maximo=MAX_CAMPO_VALOR),
+                sub_juego(v.texto(campo, "nombre", rc, requerido=True, maximo=MAX_CAMPO_NOMBRE)),
+                sub_juego(v.texto(campo, "valor", rc, requerido=True, maximo=MAX_CAMPO_VALOR)).strip(),
                 v.booleano(campo, "inline", rc),
             ))
+        botones = _parsear_botones(v, m.get("botones_roles"), f"{ruta}.botones_roles")
         mensaje = Mensaje(
             key=key, canal=v.texto(m, "canal", ruta, requerido=True),
-            titulo=v.texto(m, "titulo", ruta, maximo=MAX_EMBED_TITULO),
-            descripcion=v.texto(m, "descripcion", ruta, maximo=MAX_EMBED_DESCRIPCION),
+            titulo=sub_juego(v.texto(m, "titulo", ruta, maximo=MAX_EMBED_TITULO)),
+            descripcion=sub_juego(v.texto(m, "descripcion", ruta, maximo=MAX_EMBED_DESCRIPCION)),
             color=v.color(m, "color", ruta, defecto=0x5865F2), campos=tuple(campos),
-            pie=v.texto(m, "pie", ruta, maximo=MAX_EMBED_PIE),
+            pie=sub_juego(v.texto(m, "pie", ruta, maximo=MAX_EMBED_PIE)),
             publicar=v.booleano(m, "publicar", ruta, defecto=True),
-            botones_roles=v.lista_texto(m, "botones_roles", ruta),
+            botones_roles=tuple(b.rol for b in botones), botones=botones,
         )
         if not (mensaje.titulo or mensaje.descripcion or mensaje.campos):
             v.error(ruta, "el mensaje esta vacio (pon titulo, descripcion o campos)")
@@ -854,7 +965,7 @@ def parsear(datos):
         eventos=eventos, comandos_bloqueados=bloqueados,
         roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
         mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda, recursos=recursos,
-        bienvenida=bienvenida, rangos=rangos, webhook=webhook,
+        bienvenida=bienvenida, rangos=rangos, webhook=webhook, juego=juego,
     )
 
 
