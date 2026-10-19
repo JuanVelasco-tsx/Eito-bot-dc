@@ -104,7 +104,7 @@ async def test_aplicar_de_punta_a_punta_con_la_bd_real_y_plan_posterior_en_omiti
     from profiles.pss_config import cargar
     from profiles.pss_exec import ejecutar
     from profiles.pss_plan import calcular_plan
-    from tests.test_pss_exec import G, MINIMO_BOT, FServidor, estado_mensajes, foto
+    from tests.pss_fakes import G, MINIMO_BOT, FServidor, estado_mensajes, foto
 
     config = cargar(Path(__file__).resolve().parent.parent / "profiles" / "pss.toml")
     claves = [e.key for e in (*config.roles, *config.categorias, *config.canales, *config.mensajes)]

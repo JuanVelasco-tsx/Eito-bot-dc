@@ -6,9 +6,9 @@ Es una extensión aislada: `profiles/pss.py` + `profiles/pss.toml`, que se carga
 `PSS_PROFILE_ENABLED=1`. GitHub de la organización: https://github.com/Phantom-Shadows-Studios
 
 - Servidor: `1420403964746268684` · dueño: `668148837579227137`.
-- **PSS es un servidor público para la comunidad:** solo **🔒 Equipo** y **🛡️ Staff** son privados.
-  Anuncios y Estudio son visibles para todos en solo lectura; Comunidad, Desarrollo, Roblox,
-  Soporte y Voz son abiertos.
+- **PSS es un servidor público para la comunidad:** solo **🔒 » EQUIPO** y **🛡️ » STAFF** son
+  privados. **📌 » IMPORTANTE** es visible para todos en solo lectura; COMUNIDAD, DESARROLLO y
+  VOZ son abiertos. Formato de nombres: categorías `emoji » NOMBRE`, canales `emoji・nombre`.
 - Todo lo del perfil actúa **solo** cuando `guild.id` coincide con el `guild_id` del TOML.
   En cualquier otro servidor `!pss` no responde y los eventos no cambian.
 
@@ -29,6 +29,9 @@ La tabla `perfil_recursos` se crea sola al cargar el perfil (no existe si el per
 
 ## 2. Orden de despliegue (importante)
 
+0. **Activa Comunidad antes de aplicar** (sección 9, paso 3). El canal de anuncios (`📣・anuncios`)
+   y el foro (`❓・ayuda`) la exigen: sin ella el plan los marca **«bloqueado: activa Comunidad»**
+   y `!pss aplicar` hace todo lo demás; al activarla y repetir `!pss aplicar` se completan.
 1. **(a) Sube el rol del bot** («EITO Setup Bot») por encima de los roles que va a gestionar
    (Developer, y donde quieras que queden los nuevos). Hoy comparte la posición 1 con
    Developer. Los roles nuevos se crean *por debajo* del rol del bot.
@@ -54,6 +57,10 @@ Tras aplicar, a mano:
   categoría, igual que el canal de voz `🔊 Reuniones`, así que pasan a ser privados: quien no tenga
   «Developer», «Colaborador» o «Administrador» dejará de verlos.
   `!pss plan` avisa de a quién afecta. (`#frontend` y `#backend` son públicos: no afecta a nadie.)
+- **Borra o archiva a mano lo que el plan lista en «🧹 A mano»:** las categorías que quedan
+  vacías (`📢 Anuncios`, `🟥 Roblox`, `🛠️ Soporte`) y el `#ayuda` de texto antiguo, que queda
+  **reemplazado** por el foro `❓・ayuda` (el bot no lo toca ni lo borra; `🛠️ Soporte` queda vacía
+  cuando lo hayas retirado).
 - Haz los [pasos manuales en Discord](#9-pasos-manuales-en-discord) de la sección 9.
 - El bot da «Miembro» solo a quien entre **después**; a los miembros actuales se lo das tú si
   quieres que lo tengan.
@@ -71,7 +78,7 @@ Tras aplicar, a mano:
 | `[comandos]` | `bloquear = [...]` comandos de EITO que no funcionan en este servidor |
 | `[[roles]]` | `key`, `nombre`, `color` (`"#RRGGBB"`), `hoist`, `mentionable`, `permisos` (flags de `discord.Permissions`), `existing_id`, `adoptar`, `permitir_admin`, `autoasignable` |
 | `[[categorias]]` | `key`, `nombre`, `orden`, `existing_id`, `adoptar`, `overrides` |
-| `[[canales]]` | `key`, `nombre`, `nombre_actual` (solo con `adoptar`: cómo se llama hoy, para renombrarlo), `categoria`, `tipo` (`text`/`voice`), `tema`, `slowmode`, `limite_usuarios`, `orden`, `existing_id`, `adoptar`, `mover`, `sincronizar_permisos`, `overrides` |
+| `[[canales]]` | `key`, `nombre`, `nombre_actual` (solo con `adoptar`: cómo se llama hoy, para renombrarlo), `categoria`, `tipo` (`text`/`voice`/`news`/`forum`), `reemplaza` (solo foros), `tema`, `slowmode`, `limite_usuarios`, `orden`, `existing_id`, `adoptar`, `mover`, `sincronizar_permisos`, `overrides` |
 | `[[mensajes]]` | `key`, `canal`, `publicar`, `titulo`, `descripcion`, `color`, `campos`, `pie`, `botones_roles` |
 
 - `overrides = [{ objetivo = "@everyone", permitir = [...], denegar = [...] }, ...]`; `objetivo`
@@ -79,6 +86,20 @@ Tras aplicar, a mano:
   el bot se añade solo un override propio (así sigue funcionando sin ser administrador).
 - Los mensajes admiten `{canal:key}` y `{rol:key}` (menciones sin ping). `botones_roles` solo
   admite roles con `autoasignable = true` (sin permisos elevados).
+- **Tipos de canal.** `text` (texto), `voice`, `news` (anuncios) y `forum` (foro). `news` y
+  `forum` **exigen la función COMMUNITY**: si el servidor no la tiene el plan los marca
+  «bloqueado: activa Comunidad». Un `news` puede *crearse* o *convertir un canal de texto
+  existente* (`edit(type=news)`, si lo creó el bot o tiene `adoptar`). Un canal de texto **no se
+  convierte en foro**: se crea un foro nuevo y, con `reemplaza = "ayuda"`, el plan lista el canal
+  de texto con ese nombre como «reemplazado, archívalo o bórralo a mano» (no se toca).
+- **Renombrar lo ya mapeado.** Cambiar el `nombre` de un recurso que creó el bot (o que ya está
+  mapeado) **edita el mismo recurso** (mismo ID), nunca crea un duplicado. Un recurso que ya
+  existía y no creó el bot necesita `adoptar = true` (y `nombre_actual` para encontrarlo por su
+  nombre de hoy).
+- **Orden.** Las categorías quedan en el orden de `orden` y, dentro de cada una, los canales en el
+  `orden` del TOML (texto/anuncios/foros primero, voz después, como los muestra Discord). Discord
+  pone cada categoría o canal nuevo **arriba**, así que el plan incluye una acción «orden» que lo
+  corrige con una sola petición cuando hace falta.
 - **Un rol con `administrator` exige `permitir_admin = true`.** El rol Propietario no lo tiene.
 - El validador comprueba: flags de permisos, claves desconocidas o duplicadas, referencias a
   roles/canales/categorías inexistentes, y los límites de Discord (250 roles, 500 canales,
@@ -94,16 +115,16 @@ archivo cambia en disco. `guild_id` no se puede cambiar con `recargar` (reinicia
 - **`!pss plan`** calcula el diff y **no escribe nada**: 🆕 crear · ✏️ actualizar · 🔗 vincular
   (solo guarda el mapeo de algo que ya existía) · ⏭️ omitir · ⛔ bloqueado (con el motivo:
   permisos que le faltan al bot, jerarquía, nombre ambiguo, límites…), más advertencias.
-- **`!pss aplicar`** muestra el resumen —incluidos los canales que se **moverán** o cuyos
-  permisos se **sincronizarán**— con un botón de confirmación (60 s, solo para quien lo
+- **`!pss aplicar`** muestra el resumen —incluido lo que se **moverá, renombrará, convertirá o
+  sincronizará**, y los mensajes que se **republicarán borrando el antiguo del bot**— con un botón de confirmación (60 s, solo para quien lo
   invocó). Al confirmar:
   1. toma un `pg_try_advisory_lock` **por servidor** en PostgreSQL; si no lo consigue responde
      «Ya hay una aplicación en curso» (vale también entre dos instancias de Railway);
   2. recalcula el plan y, si cambió desde que lo viste, **no hace nada**;
-  3. ejecuta en secuencia (roles → categorías → canales → mensajes), omite lo que no cambia y
+  3. ejecuta en secuencia (roles → categorías → canales → mensajes → orden), omite lo que no cambia y
      captura `Forbidden`/`NotFound`/`HTTPException` por recurso para seguir con el resto
      (los 429 los gestiona discord.py, sin reintentos propios);
-  4. publica un reporte con lo hecho, los fallos y lo bloqueado.
+  4. publica un reporte con lo hecho, los fallos, lo bloqueado y lo que queda **a mano**.
 - Cooldown de 30 s por servidor. Pueden usarlo el dueño y los roles de `gestores`.
 - **Es idempotente:** repetirlo no duplica nada. Un recurso se busca primero por el ID guardado,
   luego por `existing_id` y por último por nombre normalizado (sin acentos, emojis ni
@@ -115,13 +136,17 @@ archivo cambia en disco. `guild_id` no se puede cambiar con `recargar` (reinicia
 
 **Hace:** crea los roles, categorías y canales que faltan; mueve/sincroniza **solo** los
 canales existentes marcados `mover`/`sincronizar_permisos`; publica y mantiene los mensajes
-informativos, todos en `#reglas` (info del estudio, reglas de comunidad pública, guía para
-nuevos y panel de especialidades con botones `pss::rol::<key>`); da el rol «Miembro» y manda una bienvenida a quien entra; encamina los
-logs de moderación al canal `registros` de Staff.
+informativos: `#📜・reglas` solo tiene las reglas de comunidad pública, y `#ℹ️・info-estudio` la
+info del estudio, la guía para nuevos y el panel de especialidades con botones `pss::rol::<key>`;
+da el rol «Miembro» y manda una bienvenida a quien entra; encamina los logs de moderación al
+canal `🛡️・registros` de Staff; deja categorías y canales en el orden del TOML.
 
 **No hace:**
-- **No borra nada** (ni roles, ni canales, ni mensajes). Las categorías viejas que queden
-  vacías las borras tú.
+- **No borra ningún rol, canal ni categoría.** Las categorías que queden vacías y los canales
+  reemplazados los borras tú: el plan los lista en «🧹 A mano».
+- **Única excepción: mensajes.** Si un mensaje que el bot publicó cambia de canal en el TOML, se
+  publica en el nuevo y se **borra el antiguo, solo si es un mensaje del bot que el perfil tiene
+  mapeado** (nunca el de otro autor).
 - No renombra, no mueve ni cambia permisos de lo que ya existía salvo que el TOML lo marque
   (`adoptar`, `mover`, `sincronizar_permisos`) y confirmes la aplicación.
 - No toca el rol **Developer** (se reutiliza tal cual; **tiene `administrator`**: quien lo
@@ -132,8 +157,10 @@ logs de moderación al canal `registros` de Staff.
 - No publica proyectos: la organización no tiene repositorios públicos
   (consulta del 2026-10-18). Los canales de proyecto irán en 🔒 Equipo y el mensaje de
   «proyectos activos» están **comentados** en el TOML como ejemplo; no se publica texto de relleno.
-- Estructura pequeña a propósito: 12 canales de texto. Todo lo demás (más canales de Roblox,
-  `#staff-chat`…) está comentado en el TOML para descomentarlo cuando haga falta.
+- Estructura pequeña a propósito: 15 canales de texto, anuncios y foros (máximo 16) y 2 de voz.
+  Lo demás está comentado en el TOML como plantilla: `#staff-chat`, canales de proyecto, **una
+  categoría por juego** (`🎮 » [JUEGO]` con noticias = news, códigos, sugerencias y bug-report =
+  foro) y **`🗄️ » ARCHIVO`** (solo lectura para todos).
 
 ### Eventos de EITO en PSS (`[eventos]`)
 - `xp = false`: sin XP por mensajes ni avisos de subida de nivel (`!nivel`, `!top`, `!perfil`
@@ -172,40 +199,47 @@ está disponible en Phantom Shadows Studios». Moderación, `!encuesta`, `!suger
   termina) pero la aplicación continúa; repetir `!pss aplicar` es seguro.
 - Los 5 miembros actuales dejarán de ver `#info-importante`, `#planificación-de-sesiones` y
   `🔊 Reuniones` (pasan a 🔒 Equipo) hasta recibir «Colaborador», «Developer» o «Administrador».
+- **Pendiente de confirmar:** los emojis de `#🎨・frontend` y `#⚙️・backend` (renombrar canales
+  existentes). Si no los quieres, quita `nombre_actual` y `adoptar` de esas dos entradas.
+- `#💡・sugerencias` debe llamarse **exactamente** así: es el nombre que busca `!sugerencia` de EITO.
+- Convertir `#anuncios` a canal de anuncios y crear el foro necesitan Comunidad (paso 0).
+- El orden usa la misma petición interna que `Channel.move()` de discord.py (una sola llamada
+  para todas las categorías y canales).
 - El filtro anti-multicuentas expulsa cuentas nuevas: un colaborador legítimo con la cuenta
   recién creada necesita `!permitir <ID>` antes de entrar.
 
 ## 8. Estructura resultante
 
-Visibilidad y quién escribe en cada categoría (12 canales de texto + 2 de voz). «Existente» =
-ya estaba en el servidor y solo se mueve; sin `adoptar`, no se cambia su nombre ni su tema. La
-excepción es `#deberes-ayuda`, que se renombra a `#ayuda` (`adoptar = true` + `nombre_actual`);
-si no quieres el cambio, quita esas dos líneas y pon `nombre = "deberes-ayuda"` en el TOML.
+Visibilidad y quién escribe en cada categoría (15 canales de texto, anuncios y foros + 2 de voz). «Existente» =
+ya estaba en el servidor; «del bot» = lo creó el perfil antes. Los existentes se renombran con
+`adoptar = true` + `nombre_actual` (solo el nombre; nunca se cambia su tema). Las categorías
+`📢 Anuncios`, `🟥 Roblox` y `🛠️ Soporte` desaparecen del TOML: sus canales se mueven y quedan
+vacías (a borrar a mano); `📌 Estudio` se reutiliza y pasa a llamarse `📌 » IMPORTANTE`.
 
 ```
-📢 Anuncios   [👁️ ven: todos · escriben: Developer + Administrador (+ bot)]
-  └─ #anuncios  (nuevo)
-📌 Estudio   [👁️ ven: todos · escriben: Developer + Administrador (+ bot)]
-  └─ #reglas  (nuevo)
-💬 Comunidad   [👁️ ven: todos · escriben: todos]
-  ├─ #general  (existente)
-  ├─ #showcase  (nuevo)
-  └─ #no-relacionado  (existente)
-💻 Desarrollo   [👁️ ven: todos · escriben: todos]
-  ├─ #frontend  (existente)
-  └─ #backend  (existente)
-🟥 Roblox   [👁️ ven: todos · escriben: todos]
-  └─ #scripting-luau  (nuevo)
-🛠️ Soporte   [👁️ ven: todos · escriben: todos]
-  └─ #ayuda  (existente, se renombra desde #deberes-ayuda)
-🔊 Voz   [👁️ ven: todos · escriben: todos]
-  └─ 🔊 General  (nuevo)
-🔒 Equipo   [🔒 ven y escriben: Developer + Colaborador + Administrador (+ bot)]
-  ├─ #info-importante  (existente, se sincroniza con la categoría)
-  ├─ #planificación-de-sesiones  (existente, se sincroniza con la categoría)
-  └─ 🔊 Reuniones  (existente, se sincroniza con la categoría)
-🛡️ Staff   [🔒 ven y escriben: Propietario + Administrador (+ bot)]
-  └─ #registros  (nuevo)
+📌 » IMPORTANTE   [👁️ ven: todos · escriben: Developer + Administrador (+ bot)]
+  ├─ 📜・reglas             del bot, se renombra · solo las reglas
+  ├─ 📣・anuncios           del bot, se convierte en canal de ANUNCIOS y se mueve · requiere Comunidad
+  └─ ℹ️・info-estudio       nuevo · info del estudio, guía y botones de especialidad
+💬 » COMUNIDAD    [👁️ ven: todos · escriben: todos]
+  ├─ 💬・general            existente (general), se renombra
+  ├─ 📸・showcase           del bot, se renombra · cualquiera publica
+  ├─ 💡・sugerencias        nuevo · nombre exacto que usa !sugerencia
+  ├─ 🤖・comandos           nuevo
+  └─ 🎲・no-relacionado     existente (no-relacionado), se renombra
+💻 » DESARROLLO   [👁️ ven: todos · escriben: todos]
+  ├─ 🟥・scripting-luau     del bot, se renombra y se mueve desde 🟥 Roblox
+  ├─ 🎨・frontend           existente, se renombra   [PENDIENTE DE CONFIRMAR]
+  ├─ ⚙️・backend            existente, se renombra   [PENDIENTE DE CONFIRMAR]
+  └─ ❓・ayuda              FORO nuevo · el #ayuda de texto actual no se toca ("reemplazado") · requiere Comunidad
+🔊 » VOZ          [👁️ ven y hablan: todos]
+  └─ 🔊 General             del bot
+🔒 » EQUIPO       [🔒 ven y escriben: Developer + Colaborador + Administrador (+ bot)]
+  ├─ 📌・info-importante    existente, se renombra y se sincroniza (privado)
+  ├─ 🗓️・planificación-de-sesiones   existente, se renombra y se sincroniza (privado)
+  └─ 🔊 Reuniones           voz existente, se sincroniza (privada); sin renombrar
+🛡️ » STAFF        [🔒 ven y escriben: Propietario + Administrador (+ bot)]
+  └─ 🛡️・registros          del bot, se renombra · logs de moderación
 ```
 
 Los roles y sus permisos están en `profiles/pss.toml` (Propietario sin permisos; Administrador
@@ -225,15 +259,17 @@ mano al abrirlo a la comunidad:
    (`administrator`). Mientras lo tenga, quien reciba ese rol ignora todos los overrides, incluido
    el de 🔒 Equipo y 🛡️ Staff. Al quitárselo, dale los permisos que necesite (p. ej. los mismos
    que a «Colaborador»); el bot nunca lo toca (no se adopta).
-3. **Activar Comunidad** (Ajustes del servidor → Habilitar la comunidad): pide un canal de
-   reglas (`#reglas`) y un canal de actualizaciones (`#anuncios`).
+3. **Activar Comunidad** (Ajustes del servidor → Habilitar la comunidad) **antes de
+   `!pss aplicar`**: pide un canal de reglas (`#reglas`) y un canal de actualizaciones (elige
+   `#anuncios`; el perfil lo convierte en canal de anuncios si Discord no lo hace antes).
+   Sin Comunidad no se pueden crear canales de anuncios ni foros.
 4. **Nivel de verificación: Media** (correo verificado y cuenta registrada en Discord desde hace
    más de 5 minutos).
 5. **Filtro de contenido multimedia explícito:** analizar el contenido de **todos los miembros**.
 6. **Onboarding** (Ajustes del servidor → Onboarding; requiere Comunidad): configura **solo los
-   canales por defecto** (`#reglas`, `#general`, `#showcase`…). **No añadas preguntas que den
-   roles:** las especialidades (Scripter, Builder, UI) se eligen con los botones del bot en
-   `#reglas`, y el rol «Miembro» lo da el propio bot al entrar.
+   canales por defecto** (`#reglas`, `#info-estudio`, `#general`, `#showcase`…). **No añadas
+   preguntas que den roles:** las especialidades (Scripter, Builder, UI) se eligen con los botones
+   del bot en `#info-estudio`, y el rol «Miembro» lo da el propio bot al entrar.
 
 ## 10. Desactivarlo y retirarlo por completo
 

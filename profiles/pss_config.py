@@ -33,6 +33,8 @@ MAX_ETIQUETA_BOTON = 80
 LARGO_MENCION = 22         # "<#" + 18 digitos + ">" (estimacion al validar plantillas)
 
 EVENTOS_BOOL = ("xp", "voz", "anti_multicuentas")
+TIPOS_CANAL = ("text", "voice", "news", "forum")
+TIPOS_CON_MENSAJES = ("text", "news")       # donde el bot puede publicar mensajes
 REGEX_KEY = re.compile(r"[a-z0-9_]{1,64}")
 REGEX_COLOR = re.compile(r"#?([0-9a-fA-F]{6})")
 REGEX_PLACEHOLDER = re.compile(r"\{(canal|rol):([a-z0-9_]+)\}")
@@ -95,11 +97,12 @@ class Canal:
     key: str
     nombre: str
     categoria: str
-    tipo: str = "text"                # text | voice
+    tipo: str = "text"                # text | voice | news (anuncios) | forum
     nombre_actual: str | None = None   # como se llama hoy (para encontrarlo antes de renombrarlo)
     tema: str | None = None
     slowmode: int | None = None
     limite_usuarios: int | None = None
+    reemplaza: str | None = None       # foro que sustituye a un canal de texto existente con ese nombre
     orden: int = 0
     existing_id: int = 0
     adoptar: bool = False
@@ -362,21 +365,25 @@ def parsear(datos):
     for i, c in enumerate(v.lista_de_tablas(raiz.get("canales"), "canales")):
         ruta = f"canales[{i}]"
         v.desconocidas(c, {"key", "nombre", "nombre_actual", "tipo", "categoria", "tema", "slowmode", "limite_usuarios",
-                           "orden", "existing_id", "adoptar", "mover", "sincronizar_permisos",
+                           "reemplaza", "orden", "existing_id", "adoptar", "mover", "sincronizar_permisos",
                            "overrides"}, ruta)
         key = v.texto(c, "key", ruta, requerido=True)
         ruta = f"canales[{i}] '{key}'"
         tipo = v.texto(c, "tipo", ruta, defecto="text") or "text"
-        if tipo not in ("text", "voice"):
-            v.error(f"{ruta}.tipo", f"debe ser 'text' o 'voice' (vale {tipo!r})")
+        if tipo not in TIPOS_CANAL:
+            v.error(f"{ruta}.tipo", f"debe ser uno de {', '.join(TIPOS_CANAL)} (vale {tipo!r})")
         if tipo == "voice" and "tema" in c:
             v.error(f"{ruta}.tema", "un canal de voz no tiene tema")
-        if tipo == "voice" and "slowmode" in c:
-            v.error(f"{ruta}.slowmode", "un canal de voz no tiene slowmode")
-        if tipo == "text" and "limite_usuarios" in c:
+        if tipo in ("voice", "news") and "slowmode" in c:
+            v.error(f"{ruta}.slowmode", "solo aplica a canales de texto y foros")
+        if tipo != "voice" and "limite_usuarios" in c:
             v.error(f"{ruta}.limite_usuarios", "solo aplica a canales de voz")
+        if "reemplaza" in c and tipo != "forum":
+            v.error(f"{ruta}.reemplaza", "solo aplica a foros (un canal de texto no se convierte en foro)")
         if "nombre_actual" in c and not c.get("adoptar"):
             v.error(f"{ruta}.nombre_actual", "solo tiene sentido con adoptar = true (es para renombrar un canal existente)")
+        if "nombre_actual" in c and tipo == "forum":
+            v.error(f"{ruta}.nombre_actual", "un canal de texto no se convierte en foro: usa 'reemplaza' y se crea un foro nuevo")
         canales.append(Canal(
             key=key, nombre=v.texto(c, "nombre", ruta, requerido=True, maximo=MAX_NOMBRE),
             nombre_actual=(v.texto(c, "nombre_actual", ruta, requerido=True, maximo=MAX_NOMBRE)
@@ -386,6 +393,8 @@ def parsear(datos):
             slowmode=(v.entero(c, "slowmode", ruta, maximo=MAX_SLOWMODE) if "slowmode" in c else None),
             limite_usuarios=(v.entero(c, "limite_usuarios", ruta, maximo=MAX_LIMITE_VOZ)
                              if "limite_usuarios" in c else None),
+            reemplaza=(v.texto(c, "reemplaza", ruta, requerido=True, maximo=MAX_NOMBRE)
+                       if "reemplaza" in c else None),
             orden=v.entero(c, "orden", ruta), existing_id=v.entero(c, "existing_id", ruta),
             adoptar=v.booleano(c, "adoptar", ruta), mover=v.booleano(c, "mover", ruta),
             sincronizar_permisos=v.booleano(c, "sincronizar_permisos", ruta),
@@ -473,7 +482,7 @@ def parsear(datos):
 
     # --- referencias ---
     claves_roles = {r.key for r in roles}
-    claves_canales_texto = {c.key for c in canales if c.tipo == "text"}
+    claves_canales_texto = {c.key for c in canales if c.tipo in TIPOS_CON_MENSAJES}
     claves_categorias = {c.key for c in categorias}
 
     def referencia_rol(valor, ruta):

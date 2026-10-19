@@ -29,6 +29,7 @@ PERMISOS_OVERRIDE_BOT = ("view_channel", "send_messages", "embed_links",
 
 ORDEN_DESPLIEGUE = (
     "**Orden de despliegue**\n"
+    "0) Activa Comunidad (anuncios y foros la exigen; sin ella salen «bloqueado»).\n"
     "a) Sube el rol del bot por encima de los roles que va a gestionar.\n"
     "b) `!pss aplicar` con el bot todavía como administrador.\n"
     "c) Baja el rol del bot al entero mínimo de permisos `1099780189270`.\n"
@@ -60,8 +61,8 @@ def nombre_igual(a, b):
 
 
 def nombre_en_discord(texto, tipo):
-    """Como queda un nombre al crearlo: los canales de texto van en minusculas con guiones."""
-    return re.sub(r"\s+", "-", texto.strip().lower()) if tipo == "text" else texto
+    """Como queda un nombre al crearlo: texto, anuncios y foros van en minusculas con guiones."""
+    return re.sub(r"\s+", "-", texto.strip().lower()) if tipo != "voice" else texto
 
 
 # --- Foto del servidor y estado guardado -------------------------------------------
@@ -81,11 +82,12 @@ class SRol:
 class SCanal:
     id: int
     name: str
-    tipo: str                    # categoria | text | voice | otro
+    tipo: str                    # categoria | text | news | forum | voice | stage | otro
     category_id: int | None = None
     topic: str | None = None
     slowmode: int = 0
     user_limit: int = 0
+    position: int = 0
     overwrites: dict = field(default_factory=dict)   # id del objetivo -> (allow, deny)
 
 
@@ -107,6 +109,7 @@ class Snapshot:
     roles: list
     canales: list
     miembros: list = field(default_factory=list)
+    features: frozenset = frozenset()    # guild.features (p. ej. "COMMUNITY")
 
     def rol_bajo_el_bot(self, rol):
         """Misma regla que Role.__lt__ de discord.py: a igual posicion manda el ID mas bajo."""
@@ -125,7 +128,7 @@ class Registro:
 # --- Resultado -----------------------------------------------------------------------
 @dataclass
 class Accion:
-    tipo: str                     # rol | categoria | canal | mensaje
+    tipo: str                     # rol | categoria | canal | mensaje | orden
     key: str
     op: str                       # crear | actualizar | vincular | omitir | bloqueado
     detalle: str = ""
@@ -139,6 +142,7 @@ class Accion:
 class Plan:
     acciones: list = field(default_factory=list)
     advertencias: list = field(default_factory=list)
+    manuales: list = field(default_factory=list)  # cosas que el bot NO hace y debes hacer a mano
     ids: dict = field(default_factory=dict)       # key -> id ya existente en Discord
 
     def con_op(self, *ops):
@@ -252,6 +256,66 @@ def _bloqueo_por_permisos(faltan):
     return f"el bot no tiene {', '.join(faltan)}"
 
 
+# --- Orden de categorias y canales --------------------------------------------------------
+def bucket_de(tipo):
+    """Los canales se ordenan por separado: categorias, texto/anuncios/foros y voz."""
+    if tipo == "categoria":
+        return "categoria"
+    return "voz" if tipo in ("voice", "stage") else "texto"
+
+
+def calcular_orden_payload(canales, categorias_deseadas, canales_deseados):
+    """Posiciones que dejan categorias y canales en el orden del TOML.
+
+    `canales`: [(id, tipo, category_id, position)] de TODO el servidor, con datos frescos.
+    `categorias_deseadas`: ids de categorias en el orden que deben quedar (arriba).
+    `canales_deseados`: {id_categoria: [ids de canal en el orden del TOML]}.
+    Lo que no esta en el TOML conserva su orden relativo y queda DESPUES (abajo).
+    Devuelve [{"id": ..., "position": ...}] listo para el PATCH /guilds/{id}/channels."""
+    ordenados = sorted(canales, key=lambda c: (c[3], c[0]))
+    por_id = {c[0]: c for c in ordenados}
+    payload = []
+    for bucket in ("categoria", "texto", "voz"):
+        del_bucket = [c[0] for c in ordenados if bucket_de(c[1]) == bucket]
+        if bucket == "categoria":
+            primeros = [i for i in categorias_deseadas if i in por_id and bucket_de(por_id[i][1]) == bucket]
+        else:
+            primeros = [i for cat in categorias_deseadas for i in canales_deseados.get(cat, [])
+                        if i in por_id and bucket_de(por_id[i][1]) == bucket]
+        vistos = set(primeros)
+        final = primeros + [i for i in del_bucket if i not in vistos]
+        payload.extend({"id": i, "position": pos} for pos, i in enumerate(final))
+    return payload
+
+
+def orden_ya_correcto(canales, categorias_deseadas, canales_deseados):
+    """True si, entre lo que el TOML menciona, el orden actual ya es el deseado.
+
+    Compara solo posiciones relativas (entre categorias, y entre canales de una categoria
+    del mismo tipo de ordenacion): no le importa lo que el TOML no menciona."""
+    por_id = {c[0]: c for c in canales}
+
+    def clave(i):
+        return (por_id[i][3], i)
+
+    presentes = [i for i in categorias_deseadas if i in por_id]
+    if [clave(i) for i in presentes] != sorted(clave(i) for i in presentes):
+        return False
+    for cat, ids in canales_deseados.items():
+        for bucket in ("texto", "voz"):
+            grupo = [i for i in ids if i in por_id and por_id[i][2] == cat and bucket_de(por_id[i][1]) == bucket]
+            if [clave(i) for i in grupo] != sorted(clave(i) for i in grupo):
+                return False
+    return True
+
+
+def tiene_comunidad(snap):
+    return "COMMUNITY" in snap.features
+
+
+MOTIVO_COMUNIDAD = "activa Comunidad (Ajustes del servidor → Habilitar la comunidad)"
+
+
 # --- Resolucion ----------------------------------------------------------------------------
 def _resolver(tipo, key, nombre, existing_id, candidatos, estado, reclamados, nombrables=None, alias=()):
     """-> (objeto | None, via, ambiguos). Orden: ID guardado, existing_id, nombre normalizado.
@@ -286,8 +350,14 @@ def calcular_plan(config, snap, estado, mensajes_estado):
     ac = plan.acciones
     roles_por_id = {r.id: r for r in snap.roles if r.id != snap.guild_id}
     cats_por_id = {c.id: c for c in snap.canales if c.tipo == "categoria"}
-    texto_por_id = {c.id: c for c in snap.canales if c.tipo == "text"}
-    voz_por_id = {c.id: c for c in snap.canales if c.tipo == "voice"}
+    candidatos_canal = {
+        "text": {c.id: c for c in snap.canales if c.tipo == "text"},
+        # un canal de texto puede convertirse en anuncios; un anuncio ya lo es
+        "news": {c.id: c for c in snap.canales if c.tipo in ("text", "news")},
+        # un canal de texto NO se convierte en foro: solo cuentan los foros que ya existan
+        "forum": {c.id: c for c in snap.canales if c.tipo == "forum"},
+        "voice": {c.id: c for c in snap.canales if c.tipo == "voice"},
+    }
     reclamados = set()
     for k, reg in estado.items():
         reclamados.add(reg.discord_id)
@@ -315,7 +385,7 @@ def calcular_plan(config, snap, estado, mensajes_estado):
     for c in config.categorias:
         resolver("categoria", c, cats_por_id)
     for c in config.canales:
-        resolver("canal", c, texto_por_id if c.tipo == "text" else voz_por_id)
+        resolver("canal", c, candidatos_canal[c.tipo])
 
     ids_roles = {r.key: res[r.key][0].id for r in config.roles if res[r.key][0] is not None}
     ids_cats = {c.key: res[c.key][0].id for c in config.categorias if res[c.key][0] is not None}
@@ -450,10 +520,13 @@ def calcular_plan(config, snap, estado, mensajes_estado):
         deseados, pendiente = overwrites_deseados(efectivos, ids_roles, snap.guild_id, snap.bot_id)
 
         destino_clave = cat_id if cat_id is not None else c.categoria
+        necesita_comunidad = c.tipo in ("news", "forum")
         if obj is None:
             faltan = _unir(_sin_permiso(snap, "manage_channels", "manage_roles"),
                            _faltan(snap, _bits_allow(deseados)))
-            if faltan:
+            if necesita_comunidad and not tiene_comunidad(snap):
+                anotar("canal", c.key, "bloqueado", c.nombre, razon=MOTIVO_COMUNIDAD)
+            elif faltan:
                 anotar("canal", c.key, "bloqueado", c.nombre, razon=_bloqueo_por_permisos(faltan))
             elif n_canales + 1 > MAX_CANALES:
                 anotar("canal", c.key, "bloqueado", c.nombre, razon=f"límite de {MAX_CANALES} canales")
@@ -462,7 +535,7 @@ def calcular_plan(config, snap, estado, mensajes_estado):
             else:
                 n_canales += 1
                 nuevos_por_cat[destino_clave] = nuevos_por_cat.get(destino_clave, 0) + 1
-                anotar("canal", c.key, "crear", f"{c.nombre} → {cat.nombre}")
+                anotar("canal", c.key, "crear", f"{c.nombre} ({_TIPOS_TEXTO[c.tipo]}) → {cat.nombre}")
             continue
 
         reg = estado.get(c.key)
@@ -479,6 +552,8 @@ def calcular_plan(config, snap, estado, mensajes_estado):
                 cambios["limite_usuarios"] = c.limite_usuarios
             if c.overrides and (pendiente or _difieren(obj.overwrites, deseados)):
                 cambios["overwrites"] = True
+            if c.tipo == "news" and obj.tipo == "text":
+                cambios["tipo"] = "news"
         mueve = c.mover and (cat_id is None or obj.category_id != cat_id)
         if mueve:
             cambios["mover"] = c.categoria
@@ -492,7 +567,9 @@ def calcular_plan(config, snap, estado, mensajes_estado):
         if cambios:
             necesita_roles = {"overwrites", "sincronizar"} & set(cambios)
             faltan = _sin_permiso(snap, "manage_channels", *(("manage_roles",) if necesita_roles else ()))
-            if mueve and not cabe(destino_clave):
+            if "tipo" in cambios and not tiene_comunidad(snap):
+                anotar("canal", c.key, "bloqueado", c.nombre, obj, via, razon=MOTIVO_COMUNIDAD)
+            elif mueve and not cabe(destino_clave):
                 anotar("canal", c.key, "bloqueado", c.nombre, obj, via,
                        razon=f"la categoría '{c.categoria}' tendría más de {MAX_POR_CATEGORIA} canales")
             elif faltan:
@@ -531,27 +608,125 @@ def calcular_plan(config, snap, estado, mensajes_estado):
         if estado_msg == "error":
             anotar("mensaje", m.key, "bloqueado", m.key, razon="no pude leer el mensaje guardado (permisos o error de Discord)")
             continue
+        # Si menciona algo que no se puede crear (bloqueado), no se publica a medias.
+        bloqueados_mencionados = sorted(k for k in referencias(m) if k not in plan.ids and k in bloqueadas)
+        if bloqueados_mencionados:
+            anotar("mensaje", m.key, "bloqueado", m.key,
+                   razon=f"menciona «{bloqueados_mencionados[0]}», que está bloqueado; se publica cuando exista")
+            continue
         try:
             renderizado = renderizar(m, plan.ids)
         except PendienteDeId as e:
-            anotar("mensaje", m.key, "actualizar" if existe else "crear", m.key,
+            cambios_pend = {}
+            if existe and reg.canal_id != canal_id:
+                cambios_pend = {"republicar": True, "borrar_antiguo": True}
+            anotar("mensaje", m.key, "actualizar" if existe else "crear", m.key, cambios=cambios_pend,
                    razon=f"pendiente: menciona «{e.args[0]}», que aún no existe")
             continue
         h = hash_contenido(renderizado)
-        if canal_id is None:
+        if canal_id is None and existe:
+            anotar("mensaje", m.key, "actualizar", m.key,
+                   cambios={"republicar": True, "borrar_antiguo": True},
+                   razon=f"el canal '{m.canal}' aún no existe: se publica allí y se borra el antiguo (mensaje del bot)")
+        elif canal_id is None:
             anotar("mensaje", m.key, "crear", m.key, razon=f"el canal '{m.canal}' aún no existe")
         elif not existe:
             anotar("mensaje", m.key, "crear", m.key,
                    razon="se publicó antes pero ya no existe: se vuelve a publicar" if reg is not None else "")
         elif reg.hash != h or reg.canal_id != canal_id:
+            cambia_canal = reg.canal_id != canal_id
             anotar("mensaje", m.key, "actualizar", m.key,
-                   cambios={"republicar": reg.canal_id != canal_id},
-                   razon="cambió de canal: se publica de nuevo" if reg.canal_id != canal_id else "contenido distinto")
+                   cambios={"republicar": True, "borrar_antiguo": True} if cambia_canal else {"republicar": False},
+                   razon=("cambió de canal: se publica en el nuevo y se borra el antiguo (mensaje del bot)"
+                          if cambia_canal else "contenido distinto"))
         else:
             anotar("mensaje", m.key, "omitir", m.key)
 
+    _orden(config, snap, ids_cats, ids_canales, plan)
+    _manuales(config, snap, estado, ids_cats, ids_canales, plan)
     _advertencias(config, snap, res, ids_roles, perdedores, plan)
     return plan
+
+
+# --- Orden, vacias y reemplazados ---------------------------------------------------------------------------
+def _deseado_orden(config, ids_cats, ids_canales):
+    """(categorias_deseadas, canales_deseados) con los IDs ya resueltos, en el orden del TOML."""
+    cats = [ids_cats[c.key] for c in sorted(config.categorias, key=lambda x: x.orden) if c.key in ids_cats]
+    canales = {}
+    for cat in config.categorias:
+        if cat.key not in ids_cats:
+            continue
+        hijos = sorted((c for c in config.canales if c.categoria == cat.key), key=lambda x: x.orden)
+        canales[ids_cats[cat.key]] = [ids_canales[c.key] for c in hijos if c.key in ids_canales]
+    return cats, canales
+
+
+def _orden(config, snap, ids_cats, ids_canales, plan):
+    """Una accion «orden»: deja categorias y canales en el orden del TOML (si no lo estan ya).
+
+    Discord pone cada categoria o canal nuevo arriba, asi que tras crear cosas el orden sale
+    invertido; esta accion lo corrige con una sola peticion."""
+    if len(config.categorias) < 2:
+        return
+    cambia_estructura = any(
+        (a.tipo in ("categoria", "canal") and a.op == "crear")
+        or (a.tipo == "canal" and a.op == "actualizar" and "mover" in a.cambios)
+        for a in plan.acciones
+    )
+    cats, canales = _deseado_orden(config, ids_cats, ids_canales)
+    datos = [(c.id, c.tipo, c.category_id, c.position) for c in snap.canales]
+    if cambia_estructura:
+        plan.acciones.append(Accion("orden", "@orden", "actualizar",
+                                    "reordenar categorías y canales según el TOML",
+                                    razon="tras crear o mover recursos"))
+    elif not orden_ya_correcto(datos, cats, canales):
+        plan.acciones.append(Accion("orden", "@orden", "actualizar",
+                                    "reordenar categorías y canales según el TOML",
+                                    razon="el orden actual no coincide"))
+    else:
+        plan.acciones.append(Accion("orden", "@orden", "omitir", "orden de categorías y canales"))
+
+
+def _manuales(config, snap, estado, ids_cats, ids_canales, plan):
+    """Lo que el bot nunca hace (borrar/archivar) y debes hacer a mano."""
+    ids_config = set(ids_canales.values()) | {c.existing_id for c in config.canales if c.existing_id}
+    por_id = {c.id: c for c in snap.canales}
+    # Foros que sustituyen a un canal de texto: el de texto no se toca.
+    reemplazados = {}   # id del canal de texto -> nombre del foro
+    bloqueadas = {a.key for a in plan.bloqueadas()}
+    for c in config.canales:
+        if not c.reemplaza or c.key in bloqueadas:
+            continue
+        objetivo = normalizar(c.reemplaza)
+        for o in snap.canales:
+            if o.tipo in ("text", "news") and o.id not in ids_config and normalizar(o.name) == objetivo:
+                reemplazados[o.id] = c.nombre
+    for canal_id, foro in reemplazados.items():
+        plan.manuales.append(
+            f"«{por_id[canal_id].name}» queda **reemplazado** por el foro «{foro}»: no lo toco; "
+            "archívalo o bórralo a mano"
+        )
+    # Categorias que se quedan sin canales (no se borran).
+    salen = {}
+    for a in plan.acciones:
+        if a.tipo == "canal" and a.op == "actualizar" and "mover" in a.cambios and a.destino_id in por_id:
+            origen = por_id[a.destino_id].category_id
+            if origen is not None:
+                salen[origen] = salen.get(origen, 0) + 1
+    ids_categorias_config = set(ids_cats.values())
+    mapeadas = {r.discord_id for r in estado.values() if r.tipo == "categoria"}
+    for cat in snap.canales:
+        if cat.tipo != "categoria" or cat.id in ids_categorias_config:
+            continue
+        hijos = [c for c in snap.canales if c.category_id == cat.id]
+        quedan = len(hijos) - salen.get(cat.id, 0)
+        solo_reemplazados = sum(1 for c in hijos if c.id in reemplazados)
+        if quedan - solo_reemplazados > 0:
+            continue
+        if not hijos and cat.id not in mapeadas:
+            continue          # una categoria vacia ajena al perfil: no es asunto suyo
+        nota = " (solo queda el canal reemplazado: bórralo antes)" if quedan else ""
+        plan.manuales.append(f"Categoría «{cat.name}»: queda **vacía**{nota}; bórrala a mano")
 
 
 # --- Utilidades del plan -----------------------------------------------------------------------------------
@@ -567,6 +742,9 @@ def _difieren(actuales, deseados):
     return any(tuple(actuales.get(t, (0, 0))) != tuple(par) for t, par in deseados.items())
 
 
+_TIPOS_TEXTO = {"text": "texto", "voice": "voz", "news": "anuncios", "forum": "foro"}
+
+
 def _texto_cambio(clave, valor, categoria):
     if clave == "mover":
         return f"mover a «{categoria.nombre}»"
@@ -576,7 +754,10 @@ def _texto_cambio(clave, valor, categoria):
         return "overrides"
     if clave == "nombre":
         return f"renombrar a «{valor}»"
-    return clave
+    if clave == "tipo":
+        return "convertir a canal de anuncios"
+    return {"tema": "actualizar el tema", "slowmode": "ajustar el slowmode",
+            "limite_usuarios": "ajustar el límite de usuarios"}.get(clave, clave)
 
 
 def _pierden_acceso(snap, categoria, ids_roles):
@@ -606,7 +787,7 @@ def _advertencias(config, snap, res, ids_roles, perdedores, plan):
             miembros = sum(1 for m in snap.miembros if obj.id in m.roles)
             avisos.append(
                 f"«{obj.name}» tiene `administrator` ({miembros} miembro(s)): quien lo reciba ignora "
-                "todos los overrides (Staff, Proyectos…). No lo toco; cámbialo tú si quieres."
+                "todos los overrides (Equipo, Staff…). No lo toco; cámbialo tú si quieres."
             )
         if not snap.rol_bajo_el_bot(obj):
             avisos.append(f"El rol del bot no está por encima de «{obj.name}»: no podré editarlo ni asignarlo.")
@@ -652,6 +833,10 @@ def lineas_plan(plan):
             elif op == "omitir" and a.via and a.via != "guardado":
                 extra = f" — reutilizado (por {a.via})"
             lineas.append(f"• `{a.tipo}` {a.key}: {a.detalle}{extra}")
+    if plan.manuales:
+        lineas.append("")
+        lineas.append("**🧹 A mano (el bot nunca borra)**")
+        lineas.extend(f"• {m}" for m in plan.manuales)
     if plan.advertencias:
         lineas.append("")
         lineas.append("**⚠️ Advertencias**")

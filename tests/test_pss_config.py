@@ -62,51 +62,85 @@ def test_el_toml_real_es_valido_y_refleja_lo_acordado():
 
 def test_estructura_publica_solo_equipo_y_staff_son_privadas():
     c = cargar(RUTA_REAL)
-    assert c.categoria("cat_proyectos") is None            # sustituida por Equipo
+    # Orden de las categorias y nombres con el formato "emoji » NOMBRE"
+    cats = sorted(c.categorias, key=lambda x: x.orden)
+    assert [x.nombre for x in cats] == [
+        "📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF"]
+    assert [x.key for x in cats] == ["cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff"]
+    for vieja in ("cat_anuncios", "cat_roblox", "cat_soporte", "cat_proyectos"):
+        assert c.categoria(vieja) is None                  # fusionadas: sus canales se mueven
     privadas = {cat.key for cat in c.categorias
                 if any(o.objetivo == "@everyone" and "view_channel" in o.denegar for o in cat.overrides)}
     assert privadas == {"cat_equipo", "cat_staff"}
     equipo = c.categoria("cat_equipo")
-    assert equipo.nombre == "🔒 Equipo"
-    visibles = {o.objetivo for o in equipo.overrides if "view_channel" in o.permitir}
-    assert visibles == {"developer", "colaborador", "administrador"}
+    assert {o.objetivo for o in equipo.overrides if "view_channel" in o.permitir} == {"developer", "colaborador", "administrador"}
     staff = c.categoria("cat_staff")
     assert {o.objetivo for o in staff.overrides if "view_channel" in o.permitir} == {"propietario", "administrador"}
-    # Anuncios y Estudio: visibles para todos, solo lectura para @everyone; escriben developer y administrador
-    for key in ("cat_anuncios", "cat_estudio"):
-        cat = c.categoria(key)
-        todos = next(o for o in cat.overrides if o.objetivo == "@everyone")
-        assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
-        assert {o.objetivo for o in cat.overrides if "send_messages" in o.permitir} == {"developer", "administrador"}
-    # Desarrollo, Roblox, Comunidad, Soporte y Voz: sin restricciones
-    for key in ("cat_desarrollo", "cat_roblox", "cat_comunidad", "cat_soporte", "cat_voz"):
+    # IMPORTANTE: visible para todos, solo lectura para @everyone; escriben developer y administrador
+    importante = c.categoria("cat_estudio")
+    todos = next(o for o in importante.overrides if o.objetivo == "@everyone")
+    assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
+    assert {o.objetivo for o in importante.overrides if "send_messages" in o.permitir} == {"developer", "administrador"}
+    for key in ("cat_comunidad", "cat_desarrollo", "cat_voz"):
         assert c.categoria(key).overrides == ()
 
 
-def test_canales_existentes_y_nuevos_segun_lo_acordado():
+def test_el_formato_de_nombres_es_emoji_y_punto_medio():
     c = cargar(RUTA_REAL)
-    for key in ("info_importante", "planificacion_sesiones"):
+    for canal in c.canales:
+        if canal.tipo == "voice":
+            continue
+        emoji, sep, resto = canal.nombre.partition("・")
+        assert sep == "・" and emoji and resto == resto.lower() and " " not in resto, canal.nombre
+    for cat in c.categorias:
+        assert " » " in cat.nombre and cat.nombre.split(" » ")[1].isupper(), cat.nombre
+
+
+def test_canales_existentes_renombrados_con_adoptar_y_nombre_actual():
+    c = cargar(RUTA_REAL)
+    esperado = {"general": "general", "no_relacionado": "no-relacionado", "info_importante": "info-importante",
+                "planificacion_sesiones": "planificación-de-sesiones", "frontend": "frontend", "backend": "backend"}
+    for key, actual in esperado.items():
         canal = c.canal(key)
-        assert canal.categoria == "cat_equipo" and canal.mover and canal.sincronizar_permisos
-        assert not canal.adoptar and canal.tema is None        # no se cambia su tema
-    # #deberes-ayuda se renombra a #ayuda (adoptar) y se busca por su nombre actual
+        assert canal.adoptar and canal.nombre_actual == actual and canal.mover, key
+        assert canal.tema is None, key                          # solo se renombra: no se cambia el tema
+    # los creados por el bot no necesitan adoptar: se renombran por estar mapeados
+    for key in ("reglas", "anuncios", "showcase", "scripting_luau", "registros"):
+        assert not c.canal(key).adoptar and c.canal(key).nombre_actual is None, key
+
+
+def test_canales_segun_la_estructura_objetivo():
+    c = cargar(RUTA_REAL)
+    en = lambda cat: [x.nombre for x in sorted((x for x in c.canales if x.categoria == cat), key=lambda x: x.orden)]
+    assert en("cat_estudio") == ["📜・reglas", "📣・anuncios", "ℹ️・info-estudio"]
+    assert en("cat_comunidad") == ["💬・general", "📸・showcase", "💡・sugerencias", "🤖・comandos", "🎲・no-relacionado"]
+    assert en("cat_desarrollo") == ["🟥・scripting-luau", "🎨・frontend", "⚙️・backend", "❓・ayuda"]
+    assert en("cat_voz") == ["🔊 General"]
+    assert en("cat_equipo") == ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"]
+    assert en("cat_staff") == ["🛡️・registros"]
+    # tipos: anuncios = news (se convierte el existente), ayuda = foro nuevo que reemplaza al canal de texto
+    assert c.canal("anuncios").tipo == "news" and c.canal("anuncios").mover
     ayuda = c.canal("ayuda")
-    assert (ayuda.nombre, ayuda.nombre_actual, ayuda.adoptar) == ("ayuda", "deberes-ayuda", True)
-    assert ayuda.categoria == "cat_soporte" and ayuda.tema is None       # solo cambia el nombre
-    # Reuniones pasa a Equipo (privado, sincronizado); la voz publica nueva es "🔊 General"
-    reuniones = c.canal("reuniones")
-    assert reuniones.categoria == "cat_equipo" and reuniones.mover and reuniones.sincronizar_permisos
-    assert reuniones.tipo == "voice" and not reuniones.adoptar
-    voz = c.canal("voz_general")
-    assert (voz.nombre, voz.tipo, voz.categoria, voz.overrides) == ("🔊 General", "voice", "cat_voz", ())
-    assert [x.key for x in c.canales if x.categoria == "cat_voz"] == ["voz_general"]
-    for key in ("frontend", "backend"):                         # publicos: se mueven, sin sincronizar
-        assert c.canal(key).categoria == "cat_desarrollo" and c.canal(key).mover
-        assert not c.canal(key).sincronizar_permisos
-    assert c.canal("showcase").categoria == "cat_comunidad" and not c.canal("showcase").overrides
-    assert c.canal("scripting_luau").categoria == "cat_roblox"
-    texto = [x for x in c.canales if x.tipo == "text"]
-    assert len(texto) <= 12 and len([x for x in c.canales if x.tipo == "voice"]) == 2
+    assert ayuda.tipo == "forum" and ayuda.reemplaza == "ayuda" and not ayuda.adoptar and ayuda.nombre_actual is None
+    assert c.canal("info_estudio").categoria == "cat_estudio" and not c.canal("info_estudio").mover
+    # Equipo: existentes movidos y sincronizados, sin cambiar su tema
+    for key in ("info_importante", "planificacion_sesiones", "reuniones"):
+        assert c.canal(key).categoria == "cat_equipo" and c.canal(key).sincronizar_permisos, key
+    assert c.canal("reuniones").nombre == "Reuniones" and not c.canal("reuniones").adoptar
+    # Desarrollo y Comunidad son publicos: nada de sincronizar
+    for key in ("frontend", "backend", "general", "no_relacionado"):
+        assert not c.canal(key).sincronizar_permisos, key
+    assert c.canal("voz_general").tipo == "voice" and c.canal("voz_general").overrides == ()
+    # hasta 16 canales de texto (texto + anuncios + foros), mas la voz
+    no_voz = [x for x in c.canales if x.tipo != "voice"]
+    assert len(no_voz) <= 16 and len([x for x in c.canales if x.tipo == "voice"]) == 2
+
+
+def test_sugerencias_usa_el_nombre_exacto_que_busca_el_comando_de_eito(mod):
+    c = cargar(RUTA_REAL)
+    assert c.canal("sugerencias").nombre == mod.CANAL_SUGERENCIAS == "💡・sugerencias"
+    assert c.canal("sugerencias").tipo == "text" and c.canal("sugerencias").categoria == "cat_comunidad"
+    assert c.canal("comandos").nombre == "🤖・comandos"
 
 
 def test_las_reglas_son_de_comunidad_publica():
@@ -114,10 +148,68 @@ def test_las_reglas_son_de_comunidad_publica():
     reglas = c.mensaje("msg_reglas").descripcion.lower()
     for tema in ("respeto", "spam", "publicidad", "código ni assets ajenos", "cada canal", "staff"):
         assert tema in reglas
-    assert {m.canal for m in c.mensajes} == {"reglas"}
+    # #reglas solo tiene las reglas; info, guia y botones van en #info-estudio
+    assert [m.key for m in c.mensajes if m.canal == "reglas"] == ["msg_reglas"]
+    assert {m.key for m in c.mensajes if m.canal == "info_estudio"} == {"msg_info_estudio", "msg_guia", "msg_especialidades"}
+    assert c.mensaje("msg_especialidades").botones_roles == ("scripter", "builder", "ui")
     assert "{canal:ayuda}" in reglas
     assert "msg_proyectos_activos" not in {m.key for m in c.mensajes}
     assert "setup" in c.comandos_bloqueados and "pss" not in c.comandos_bloqueados
+
+
+def test_plantillas_comentadas_de_juego_y_archivo():
+    """Las plantillas estan en el TOML pero comentadas; descomentandolas el archivo sigue siendo valido."""
+    texto = RUTA_REAL.read_text(encoding="utf-8")
+    assert "# nombre = \"🎮 » [JUEGO]\"" in texto and "# nombre = \"🗄️ » ARCHIVO\"" in texto
+    for trozo in ('tipo = "news"', 'tipo = "forum"', "noticias", "códigos", "sugerencias-juego", "bug-report"):
+        assert trozo in texto
+    # descomentar solo los bloques de plantilla (los que llevan cat_juego1 / cat_archivo / juego1_*)
+    lineas, salida, activo = texto.split("\n"), [], False
+    for i, linea in enumerate(lineas):
+        if linea.startswith("# [[") and any(k in " ".join(lineas[i:i + 4]) for k in ("cat_juego1", "cat_archivo", "juego1_")):
+            activo = True
+        elif not linea.startswith("#") or linea.strip() == "#":
+            activo = False
+        salida.append(linea[2:] if activo and linea.startswith("# ") else linea)
+    import tomllib
+    c = parsear(tomllib.loads("\n".join(salida)))
+    assert c.categoria("cat_juego1").nombre == "🎮 » [JUEGO]"
+    assert c.categoria("cat_archivo").nombre == "🗄️ » ARCHIVO"
+    archivo = c.categoria("cat_archivo")
+    assert "send_messages" in archivo.overrides[0].denegar and archivo.overrides[0].permitir == ()
+    assert {x.tipo for x in c.canales if x.categoria == "cat_juego1"} == {"news", "text", "forum"}
+
+
+def con_canal_extra(**campos):
+    """datos() mas un canal 'otro' (los demas estan referenciados por eventos y mensajes)."""
+    d = datos()
+    d["canales"].append({"key": "otro", "nombre": "otro", "categoria": "cat_a", **campos})
+    return d
+
+
+def test_tipos_de_canal_news_y_forum():
+    assert parsear(con_canal_extra(tipo="news")).canal("otro").tipo == "news"
+    assert parsear(con_canal_extra(tipo="forum")).canal("otro").tipo == "forum"
+    assert alguno(errores_de(con_canal_extra(tipo="stage")), "tipo", "news", "forum")
+    # un anuncio no tiene slowmode; un foro no tiene limite de voz
+    assert alguno(errores_de(con_canal_extra(tipo="news", slowmode=5)), "slowmode")
+    assert alguno(errores_de(con_canal_extra(tipo="forum", limite_usuarios=5)), "limite_usuarios")
+    assert parsear(con_canal_extra(tipo="forum", slowmode=5)).canal("otro").slowmode == 5
+
+
+def test_los_mensajes_solo_pueden_ir_a_canales_de_texto_o_anuncios_no_a_foros():
+    d = con_canal_extra(tipo="forum")
+    d["mensajes"][0]["canal"] = "otro"
+    assert alguno(errores_de(d), "mensaje 'msg'.canal", "otro")            # los foros no reciben mensajes del bot
+    d = con_canal_extra(tipo="news")
+    d["mensajes"][0]["canal"] = "otro"
+    assert parsear(d).mensaje("msg").canal == "otro"                          # un canal de anuncios si
+
+
+def test_reemplaza_solo_en_foros_y_nombre_actual_no_vale_para_foros():
+    assert alguno(errores_de(con_canal_extra(reemplaza="viejo")), "reemplaza", "foros")
+    assert parsear(con_canal_extra(tipo="forum", reemplaza="viejo")).canal("otro").reemplaza == "viejo"
+    assert alguno(errores_de(con_canal_extra(tipo="forum", adoptar=True, nombre_actual="viejo")), "nombre_actual", "foro")
 
 
 def test_permiso_invalido_con_sugerencia():

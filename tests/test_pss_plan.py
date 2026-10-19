@@ -1,6 +1,7 @@
 """Calculo del plan del perfil PSS con una foto del servidor hecha a mano (sin Discord)."""
 
 import copy
+from dataclasses import replace
 
 import pytest
 
@@ -302,7 +303,8 @@ def test_mensaje_igual_se_omite_distinto_se_edita_borrado_se_republica():
     assert a.op == "crear" and "vuelve a publicar" in a.razon
     movido = estado_con_todo({"msg": Registro("mensaje", 500, canal_id=99, hash=h)})
     a = accion(calcular_plan(c, foto_completa(), movido, {"msg": "existe"}), "msg")
-    assert a.op == "actualizar" and a.cambios == {"republicar": True}
+    assert a.op == "actualizar" and a.cambios == {"republicar": True, "borrar_antiguo": True}
+    assert "se borra el antiguo" in a.razon
 
 
 def test_mensaje_ajeno_o_ilegible_nunca_se_toca():
@@ -370,3 +372,131 @@ def test_sin_adoptar_nunca_se_renombra_un_canal_existente():
     c = config(canales=[{"key": "ayuda", "nombre": "ayuda", "categoria": "cat_pub"}], mensajes=[])
     plan = calcular_plan(c, snap(canales=[SCanal(22, "deberes-ayuda", "text", None)]), {}, {})
     assert accion(plan, "ayuda").op == "crear"        # sin alias no lo reconoce y crea el nuevo
+
+
+# --- anuncios (news) y foros: exigen Comunidad ------------------------------------------------------------
+def config_tipos():
+    return config(canales=[
+        {"key": "avisos", "nombre": "avisos", "tipo": "news", "categoria": "cat_pub"},
+        {"key": "foro", "nombre": "foro", "tipo": "forum", "categoria": "cat_pub", "reemplaza": "ayuda"},
+    ], mensajes=[])
+
+
+def test_crear_news_y_foro_sin_comunidad_sale_bloqueado():
+    plan = calcular_plan(config_tipos(), snap(), {}, {})
+    for key in ("avisos", "foro"):
+        assert accion(plan, key).op == "bloqueado" and accion(plan, key).razon.startswith("activa Comunidad")
+    assert "bloqueado: activa Comunidad" in "\n".join(lineas_plan(plan))
+    con = calcular_plan(config_tipos(), snap_comunidad(), {}, {})
+    assert accion(con, "avisos").op == "crear" and accion(con, "foro").op == "crear"
+    assert "anuncios" in accion(con, "avisos").detalle and "foro" in accion(con, "foro").detalle
+
+
+def snap_comunidad(**kw):
+    s = snap(**kw)
+    s.features = frozenset({"COMMUNITY"})
+    return s
+
+
+def test_un_texto_existente_se_convierte_en_news_solo_si_es_del_bot_o_adoptado_y_hay_comunidad():
+    c = config(canales=[{"key": "avisos", "nombre": "avisos", "tipo": "news", "categoria": "cat_pub"}], mensajes=[])
+    existente = SCanal(40, "avisos", "text", None)
+    estado = {"avisos": Registro("canal", 40, creado=True)}
+    # creado por el bot + Comunidad: se convierte (mismo ID, sin crear otro)
+    a = accion(calcular_plan(c, snap_comunidad(canales=[existente]), estado, {}), "avisos")
+    assert (a.op, a.destino_id, a.cambios) == ("actualizar", 40, {"tipo": "news"})
+    assert "convertir a canal de anuncios" in a.detalle
+    # sin Comunidad: bloqueado
+    a = accion(calcular_plan(c, snap(canales=[existente]), estado, {}), "avisos")
+    assert a.op == "bloqueado" and "activa Comunidad" in a.razon
+    # un existente ajeno al bot y sin adoptar: no se toca
+    a = accion(calcular_plan(c, snap_comunidad(canales=[existente]), {}, {}), "avisos")
+    assert a.op == "vincular" and a.cambios == {}
+    # ya es news: nada que hacer
+    ya = SCanal(40, "avisos", "news", None)
+    assert accion(calcular_plan(c, snap_comunidad(canales=[ya]), estado, {}), "avisos").op == "omitir"
+
+
+def test_un_canal_de_texto_no_se_convierte_en_foro_se_crea_uno_nuevo_y_el_viejo_se_lista():
+    texto_viejo = SCanal(22, "ayuda", "text", None)
+    plan = calcular_plan(config_tipos(), snap_comunidad(canales=[texto_viejo]), {}, {})
+    a = accion(plan, "foro")
+    assert a.op == "crear" and a.destino_id is None                   # foro nuevo, el de texto no es candidato
+    assert any("«ayuda» queda **reemplazado** por el foro «foro»" in m and "a mano" in m for m in plan.manuales)
+    assert "🧹 A mano" in "\n".join(lineas_plan(plan))
+    # un foro que ya existe se reutiliza (y el de texto sigue listado hasta que lo borres)
+    foro = SCanal(23, "foro", "forum", None)
+    plan = calcular_plan(config_tipos(), snap_comunidad(canales=[texto_viejo, foro]), {}, {})
+    assert accion(plan, "foro").op == "vincular" and accion(plan, "foro").destino_id == 23
+    assert plan.manuales
+    # si el foro esta bloqueado (sin Comunidad) todavia no se pide archivar nada
+    plan = calcular_plan(config_tipos(), snap(canales=[texto_viejo]), {}, {})
+    assert plan.manuales == []
+
+
+def test_las_categorias_que_quedan_vacias_se_listan_pero_no_se_borran():
+    vieja = SCanal(50, "Vieja", "categoria")
+    canal = SCanal(51, "general", "text", 50)
+    c = config(canales=[{"key": "general", "nombre": "general", "categoria": "cat_pub", "mover": True}], mensajes=[])
+    # mapeada por el perfil y que se vacia al mover su canal
+    plan = calcular_plan(c, snap(canales=[vieja, canal]), {"cat_vieja": Registro("categoria", 50, creado=True)}, {})
+    assert any("Categoría «Vieja»: queda **vacía**" in m and "bórrala a mano" in m for m in plan.manuales)
+    # una categoria vacia ajena al perfil no hace ruido
+    plan = calcular_plan(c, snap(canales=[SCanal(60, "Ajena", "categoria"), canal]), {}, {})
+    assert not any("Ajena" in m for m in plan.manuales)
+    # ninguna accion del plan borra nada
+    assert all(a.op in ("crear", "actualizar", "vincular", "omitir", "bloqueado") for a in plan.acciones)
+
+
+# --- renombrar lo ya mapeado --------------------------------------------------------------------------------
+def test_renombrar_un_canal_ya_mapeado_y_creado_por_el_bot_lo_edita_sin_adoptar_ni_duplicar():
+    c = config(canales=[{"key": "general", "nombre": "💬・general", "categoria": "cat_pub"}], mensajes=[])
+    existente = SCanal(21, "general", "text", None)
+    plan = calcular_plan(c, snap(canales=[existente]), {"general": Registro("canal", 21, creado=True)}, {})
+    a = accion(plan, "general")
+    assert (a.op, a.destino_id, a.cambios) == ("actualizar", 21, {"nombre": "💬・general"})
+    assert not [x for x in plan.acciones if x.op == "crear" and x.tipo == "canal"]     # no hay duplicado
+    # si NO lo creo yo ni esta adoptado, no se renombra
+    plan = calcular_plan(c, snap(canales=[existente]), {"general": Registro("canal", 21, creado=False)}, {})
+    assert accion(plan, "general").op == "omitir" and accion(plan, "general").cambios == {}
+
+
+# --- ordenes y mensajes que cambian de canal -----------------------------------------------------------------------
+def test_la_accion_orden_detecta_categorias_en_orden_inverso_y_se_omite_si_ya_esta_bien():
+    c = config(canales=[], mensajes=[])
+    cats = [SCanal(30, "Privada", "categoria", position=5), SCanal(31, "Publica", "categoria", position=2)]
+    estado = {"cat_priv": Registro("categoria", 30, creado=True), "cat_pub": Registro("categoria", 31, creado=True)}
+    # orden TOML: cat_priv (orden 1) antes que cat_pub (orden 2); aqui estan al reves
+    plan = calcular_plan(c, snap(canales=cats), estado, {})
+    assert accion(plan, "@orden").op == "actualizar" and "no coincide" in accion(plan, "@orden").razon
+    ok = [SCanal(30, "Privada", "categoria", position=1), SCanal(31, "Publica", "categoria", position=2)]
+    assert accion(calcular_plan(c, snap(canales=ok), estado, {}), "@orden").op == "omitir"
+
+
+def test_crear_o_mover_recursos_siempre_pide_reordenar():
+    plan = calcular_plan(config(), snap(), {}, {})
+    assert accion(plan, "@orden").op == "actualizar" and "tras crear o mover" in accion(plan, "@orden").razon
+
+
+def test_mensaje_con_canal_nuevo_que_aun_no_existe_se_republica_y_borra_el_antiguo():
+    c = config(mensajes=[{"key": "msg", "canal": "general", "titulo": "Hola"}])
+    estado = estado_con_todo({"msg": Registro("mensaje", 500, canal_id=99, hash="x")})
+    foto = foto_completa()
+    # el canal 'general' existe (21) pero el mensaje esta en otro canal (99): se mueve
+    a = accion(calcular_plan(c, foto, estado, {"msg": "existe"}), "msg")
+    assert a.op == "actualizar" and a.cambios == {"republicar": True, "borrar_antiguo": True}
+    # el canal destino todavia no existe: igual, republicar (el antiguo se borra tras publicar el nuevo)
+    c2 = config(canales=[{"key": "general", "nombre": "general", "categoria": "cat_pub"},
+                         {"key": "nuevo", "nombre": "nuevo", "categoria": "cat_pub"}],
+                mensajes=[{"key": "msg", "canal": "nuevo", "titulo": "Hola"}])
+    a = accion(calcular_plan(c2, foto_completa(), estado, {"msg": "existe"}), "msg")
+    assert a.op == "actualizar" and a.cambios == {"republicar": True, "borrar_antiguo": True}
+
+
+def test_un_mensaje_que_menciona_un_recurso_bloqueado_no_se_publica_a_medias():
+    cfg = config(canales=[{"key": "avisos", "nombre": "avisos", "categoria": "cat_pub"},
+                          {"key": "foro", "nombre": "foro", "tipo": "forum", "categoria": "cat_pub"}],
+                 mensajes=[{"key": "msg", "canal": "avisos", "titulo": "Mira {canal:foro}"}])
+    a = accion(calcular_plan(cfg, snap(), {}, {}), "msg")                      # sin Comunidad: el foro esta bloqueado
+    assert a.op == "bloqueado" and "foro" in a.razon
+    assert accion(calcular_plan(cfg, snap_comunidad(), {}, {}), "msg").op == "crear"

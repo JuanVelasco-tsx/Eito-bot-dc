@@ -13,8 +13,8 @@ import discord
 
 from profiles import pss_db
 from profiles.pss_plan import (
-    SCanal, SMiembro, SRol, Snapshot, hash_contenido, overrides_efectivos,
-    overwrites_deseados, renderizar, PendienteDeId,
+    SCanal, SMiembro, SRol, Snapshot, calcular_orden_payload, hash_contenido,
+    overrides_efectivos, overwrites_deseados, renderizar, PendienteDeId, _deseado_orden,
 )
 
 RAZON = "Perfil PSS (!pss aplicar)"
@@ -22,6 +22,32 @@ CADA_CUANTAS_ACCIONES = 5     # cada cuantas acciones se avisa del progreso
 
 
 # --- Lectura -------------------------------------------------------------------------------
+_TIPO_POR_TYPE = {
+    discord.ChannelType.category: "categoria", discord.ChannelType.text: "text",
+    discord.ChannelType.news: "news", discord.ChannelType.forum: "forum",
+    discord.ChannelType.voice: "voice", discord.ChannelType.stage_voice: "stage",
+}
+
+
+def _tipo_canal(c):
+    """Tipo que distingue el perfil, a partir de `c.type` (vale para canales reales y falsos)."""
+    return _TIPO_POR_TYPE.get(c.type, "otro")
+
+
+def _foto_canal(c):
+    """SCanal de un canal de discord.py (los tipos que distingue el perfil)."""
+    tipo = _tipo_canal(c)
+    overwrites = {t.id: tuple(p.value for p in ow.pair()) for t, ow in c.overwrites.items()}
+    con_tema = tipo in ("text", "news", "forum")
+    return SCanal(
+        c.id, c.name, tipo, None if tipo == "categoria" else c.category_id,
+        c.topic if con_tema else None,
+        (c.slowmode_delay or 0) if con_tema else 0,
+        c.user_limit if tipo == "voice" else 0,
+        c.position, overwrites,
+    )
+
+
 def construir_snapshot(guild):
     """Foto del servidor para el calculo del plan (no modifica nada)."""
     yo = guild.me
@@ -30,19 +56,7 @@ def construir_snapshot(guild):
              r.mentionable, r.managed)
         for r in guild.roles
     ]
-    canales = []
-    for c in guild.channels:
-        overwrites = {t.id: tuple(p.value for p in ow.pair()) for t, ow in c.overwrites.items()}
-        if isinstance(c, discord.CategoryChannel):
-            canales.append(SCanal(c.id, c.name, "categoria", None, overwrites=overwrites))
-        elif isinstance(c, discord.TextChannel):
-            canales.append(SCanal(c.id, c.name, "text", c.category_id, c.topic,
-                                  c.slowmode_delay, overwrites=overwrites))
-        elif isinstance(c, discord.VoiceChannel):
-            canales.append(SCanal(c.id, c.name, "voice", c.category_id,
-                                  user_limit=c.user_limit, overwrites=overwrites))
-        else:
-            canales.append(SCanal(c.id, c.name, "otro", c.category_id, overwrites=overwrites))
+    canales = [_foto_canal(c) for c in guild.channels]
     miembros = [SMiembro(m.id, frozenset(r.id for r in m.roles), m.bot) for m in guild.members]
     permisos = yo.guild_permissions
     return Snapshot(
@@ -50,6 +64,7 @@ def construir_snapshot(guild):
         bot_permisos=permisos.value, bot_admin=permisos.administrator,
         bot_top=(yo.top_role.position, yo.top_role.id),
         roles=roles, canales=canales, miembros=miembros,
+        features=frozenset(getattr(guild, "features", ()) or ()),
     )
 
 
@@ -193,12 +208,17 @@ async def ejecutar(guild, plan, config, estado, fabrica_vista, progreso=None):
             # que Discord sincronice solo, porque discord.py envia una lista vacia.
             ow = _mapa_overwrites(guild, _deseados(config, guild, ids, cat_cfg, c))
             opciones = {"category": cat, "overwrites": ow, "reason": RAZON}
-            if c.tipo == "text":
+            if c.tipo in ("text", "news", "forum"):
                 if c.tema is not None:
                     opciones["topic"] = c.tema
                 if c.slowmode is not None:
                     opciones["slowmode_delay"] = c.slowmode
-                canal = await guild.create_text_channel(c.nombre, **opciones)
+                if c.tipo == "forum":
+                    canal = await guild.create_forum(c.nombre, **opciones)
+                else:
+                    if c.tipo == "news":
+                        opciones["news"] = True
+                    canal = await guild.create_text_channel(c.nombre, **opciones)
             else:
                 if c.limite_usuarios is not None:
                     opciones["user_limit"] = c.limite_usuarios
@@ -220,6 +240,8 @@ async def ejecutar(guild, plan, config, estado, fabrica_vista, progreso=None):
                 opciones["slowmode_delay"] = c.slowmode
             if "limite_usuarios" in cambios:
                 opciones["user_limit"] = c.limite_usuarios
+            if "tipo" in cambios:
+                opciones["type"] = discord.ChannelType.news
             if "mover" in cambios:
                 destino = guild.get_channel(ids[c.categoria])
                 if destino is None:
@@ -251,7 +273,10 @@ async def ejecutar(guild, plan, config, estado, fabrica_vista, progreso=None):
         extra = {"view": vista} if vista is not None else {}
         h = hash_contenido(renderizado)
         reg = estado.get(m.key)
-        editar = a.op == "actualizar" and not a.cambios.get("republicar") and reg is not None
+        # Si el mensaje guardado esta en otro canal, no se edita: se publica el nuevo y se
+        # borra el antiguo (solo si es del bot y el perfil lo tiene mapeado).
+        cambia_canal = reg is not None and reg.canal_id != canal.id
+        editar = a.op == "actualizar" and reg is not None and not cambia_canal and not a.cambios.get("republicar")
         if editar:
             try:
                 original = await canal.fetch_message(reg.discord_id)
@@ -264,9 +289,26 @@ async def ejecutar(guild, plan, config, estado, fabrica_vista, progreso=None):
                 pass   # se borro entre el plan y ahora: se publica de nuevo
         enviado = await canal.send(embed=embed, allowed_mentions=no_menciones, **extra)
         await pss_db.guardar(guild.id, m.key, "mensaje", enviado.id, canal.id, h, creado=True)
-        return f"mensaje publicado: {m.key}"
+        borrado = ""
+        if cambia_canal and a.cambios.get("borrar_antiguo"):
+            borrado = await _borrar_mensaje_antiguo(guild, reg)
+        return f"mensaje publicado: {m.key}{borrado}"
 
-    manejadores = {"rol": hacer_rol, "categoria": hacer_categoria, "canal": hacer_canal, "mensaje": hacer_mensaje}
+    async def hacer_orden(a):
+        frescos = await guild.fetch_channels()
+        datos = [(c.id, _tipo_canal(c), None if c.type == discord.ChannelType.category else c.category_id, c.position)
+                 for c in frescos]
+        cats, canales = _deseado_orden(config, ids, ids)
+        payload = calcular_orden_payload(datos, cats, canales)
+        actual = {i: pos for i, _t, _c, pos in datos}
+        if all(actual.get(p["id"]) == p["position"] for p in payload):
+            return "orden de categorías y canales: ya estaba bien"
+        # discord.py no expone el reordenado en bloque; es la misma peticion que usa Channel.move().
+        await guild._state.http.bulk_channel_update(guild.id, payload, reason=RAZON)
+        return "categorías y canales reordenados según el TOML"
+
+    manejadores = {"rol": hacer_rol, "categoria": hacer_categoria, "canal": hacer_canal,
+                   "mensaje": hacer_mensaje, "orden": hacer_orden}
     pendientes = plan.pendientes()
     for i, a in enumerate(pendientes, 1):
         etiqueta = f"{a.tipo} {a.key}"
@@ -308,6 +350,26 @@ async def ejecutar(guild, plan, config, estado, fabrica_vista, progreso=None):
             res.fallos.append(f"orden de roles: no pude reordenarlos ({e.status}); arrástralos a mano")
     res.ids = ids
     return res
+
+
+async def _borrar_mensaje_antiguo(guild, reg):
+    """Borra el mensaje viejo SOLO si el perfil lo tiene mapeado y es del propio bot.
+
+    Devuelve un texto para el reporte (vacio si no habia nada que borrar)."""
+    canal = guild.get_channel(reg.canal_id) if reg.canal_id else None
+    if canal is None:
+        return " (el canal antiguo ya no existe)"
+    try:
+        viejo = await canal.fetch_message(reg.discord_id)
+    except discord.NotFound:
+        return " (el mensaje antiguo ya no existía)"
+    if viejo.author.id != guild.me.id:
+        return " (el mensaje antiguo no es del bot: no se borra)"
+    try:
+        await viejo.delete()
+    except discord.HTTPException as e:
+        return f" (no pude borrar el mensaje antiguo: {e.status})"
+    return " (mensaje antiguo del bot borrado)"
 
 
 def _bits_rol(r):

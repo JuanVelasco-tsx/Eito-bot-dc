@@ -331,14 +331,18 @@ class PerfilPSS(commands.Cog):
             f"🔗 vincular **{resumen['vincular']}** · ⛔ bloqueado **{resumen['bloqueado']}**",
         ]
         explicitos = [
-            f"• `{a.key}`: {a.detalle}" for a in plan.con_op("actualizar")
-            if {"mover", "sincronizar", "nombre"} & set(a.cambios)
+            f"• `{a.key}`: {a.detalle}" + (f" — {a.razon}" if a.razon else "")
+            for a in plan.con_op("actualizar")
+            if {"mover", "sincronizar", "nombre", "tipo", "borrar_antiguo"} & set(a.cambios)
         ]
         if explicitos:
-            lineas += ["", "**Se moverán, renombrarán o sincronizarán permisos de recursos existentes:**", *explicitos]
+            lineas += ["", "**Se moverán, renombrarán, convertirán o sincronizarán recursos existentes (y se borrarán mensajes antiguos del bot al republicarlos):**", *explicitos]
         if plan.bloqueadas():
             lineas += ["", "**Bloqueado (no se hará):**",
                        *[f"• `{a.key}`: {a.razon}" for a in plan.bloqueadas()]]
+        if plan.manuales:
+            lineas += ["", "**🧹 A mano después (el bot nunca borra canales ni categorías):**",
+                       *[f"• {m}" for m in plan.manuales]]
         if plan.advertencias:
             lineas += ["", "**⚠️ Advertencias**", *[f"• {a}" for a in plan.advertencias]]
         lineas += ["", "Usa `!pss plan` para ver el detalle completo. Nada se borra."]
@@ -383,6 +387,9 @@ class PerfilPSS(commands.Cog):
         if resultado.bloqueadas:
             lineas += ["", f"**⛔ Bloqueado ({len(resultado.bloqueadas)})**",
                        *[f"• bloqueado: {b}" for b in resultado.bloqueadas]]
+        if plan.manuales:
+            lineas += ["", "**🧹 A mano (el bot nunca borra canales ni categorías)**",
+                       *[f"• {m}" for m in plan.manuales]]
         if plan.advertencias:
             lineas += ["", "**⚠️ Advertencias**", *[f"• {a}" for a in plan.advertencias]]
         bloques = trocear(lineas)
