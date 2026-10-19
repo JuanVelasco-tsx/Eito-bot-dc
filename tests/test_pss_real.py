@@ -6,6 +6,7 @@ export. Solo son sinteticos los miembros (el export trae recuentos) y los IDs de
 de #reglas (ver `_nota` del JSON)."""
 
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,8 @@ from tests.pss_fakes import (
     BOT_REAL, DEVELOPER, FServidorReal, cargar_export_real, estado_mensajes, estado_real, foto,
     orden_actual, publicar_mensajes_reales,
 )
+FASE0 = Path(__file__).resolve().parent / "fixtures" / "pss_fase0.toml"     # el pss.toml desplegado antes de la Fase 1
+
 from tests.test_pss_exec import (  # noqa: F401  (guardado es un fixture)
     CATEGORIAS_FINAL, HIJOS_FINAL, MINIMO_BOT, RUTA, acciones, guardado, plan_de, por_nombre,
 )
@@ -68,7 +71,8 @@ def test_plan_real_con_comunidad(real):
     srv, estado = real
     plan = plan_de(srv, cargar(RUTA), estado)
     a = acciones(plan)
-    assert {k for k, x in a.items() if x.op == "crear"} == {"info_estudio", "sugerencias", "comandos", "ayuda"}
+    assert {k for k, x in a.items() if x.op == "crear"} == {
+        "info_estudio", "sugerencias", "comandos", "ayuda", "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades", "msg_presentaciones"}
     assert [x for x in plan.acciones if x.op == "bloqueado"] == []
     assert {k for k, x in a.items() if x.op == "omitir"} == {
         "propietario", "administrador", "developer", "colaborador", "miembro", "scripter", "builder", "ui",
@@ -97,7 +101,8 @@ def test_plan_real_sin_comunidad(real):
     a = acciones(plan)
     assert {k for k, x in a.items() if x.op == "bloqueado"} == {"anuncios", "ayuda", "msg_reglas", "msg_guia"}
     assert "activa Comunidad" in a["anuncios"].razon and "activa Comunidad" in a["ayuda"].razon
-    assert {k for k, x in a.items() if x.op == "crear"} == {"info_estudio", "sugerencias", "comandos"}
+    assert {k for k, x in a.items() if x.op == "crear"} == {
+        "info_estudio", "sugerencias", "comandos", "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades", "msg_presentaciones"}
     texto = "\n".join(lineas_plan(plan))
     assert "reemplazado" not in texto and "Categoría «📢 Anuncios»" not in texto     # anuncios sigue ahi
     assert "Categoría «🟥 Roblox»: queda **vacía**" in texto
@@ -128,7 +133,7 @@ async def test_aplicar_deja_el_orden_importante_comunidad_desarrollo_voz_equipo_
     # los mensajes: #reglas conserva el suyo (editado) y los otros 3 pasan a #info-estudio
     assert [m.embed.title for m in c["📜・reglas"].mensajes.values()] == ["📜 Reglas"]
     assert [m.embed.title for m in c["ℹ️・info-estudio"].mensajes.values()] == [
-        "👻 Phantom Shadows Studios", "🧭 Guía para nuevos integrantes", "🎭 Tus especialidades"]
+        "👻 Phantom Shadows Studios", "🧭 Guía para nuevos integrantes", "🎭 Especialidades y avisos"]
     # el bot en el mínimo de permisos: ya no hay nada que hacer
     plan = plan_de(srv, config, estado, admin=False, permisos=MINIMO_BOT)
     assert [x for x in plan.acciones if x.op != "omitir"] == []
@@ -177,6 +182,58 @@ async def test_adoptar_de_un_canal_que_el_dueno_borro_no_lo_recrea(real):
     res = await ejecutar(srv, plan, config, estado, lambda k: object())
     assert not any("frontend" in c.name for c in srv.canales.values()) and "frontend" not in estado
     assert not any(l[0].startswith("create") and "frontend" in str(l) for l in srv.llamadas)
-    # el resto sigue aplicandose: se crean info-estudio, sugerencias, comandos y el foro
-    assert len(srv.canales) == antes + 4
+    # el resto sigue aplicandose: info-estudio, sugerencias, comandos, el foro y los 4 canales de la Fase 1
+    assert len(srv.canales) == antes + 8
     assert res.fallos == []
+
+
+# --- Fase 1 sobre lo DESPLEGADO: el estado real + el pss.toml de la Fase 0 aplicado ---------------------------------
+@pytest.fixture
+async def desplegado(real):
+    """PSS tal como esta hoy: el export real al que se le aplico el pss.toml de la Fase 0 (plan en omitir)."""
+    srv, estado = real
+    config0 = cargar(FASE0)
+    plan, res = await aplicar_real(srv, config0, estado)
+    assert res.fallos == [] and res.bloqueadas == []
+    plan = plan_de(srv, config0, estado, admin=False, permisos=MINIMO_BOT)
+    assert plan.coincide()
+    return srv, estado
+
+
+async def test_plan_de_la_fase_1_sobre_lo_desplegado(desplegado):
+    srv, estado = desplegado
+    plan = plan_de(srv, cargar(RUTA), estado)
+    a = acciones(plan)
+    assert {k for k, x in a.items() if x.op == "crear"} == {"bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades", "msg_presentaciones"}
+    assert {k for k, x in a.items() if x.op == "actualizar"} == {
+        "info_estudio", "msg_guia", "msg_especialidades", "@orden"}
+    assert a["info_estudio"].cambios == {"tema": "Quiénes somos, guía para empezar, especialidades y avisos."}
+    assert [x for x in plan.acciones if x.op == "bloqueado"] == [] and not plan.coincide()
+    assert {k for k, x in a.items() if x.op == "omitir"} >= {"reglas", "anuncios", "general", "ayuda", "registros"}
+    texto = "\n".join(lineas_plan(plan))
+    assert "bloqueado" not in texto.split("**🧹")[0].lower().replace("⛔ bloqueado 0", "")
+    assert not any("rol del bot no está por encima de «Propietario»" in w for w in plan.advertencias)
+
+
+async def test_aplicar_la_fase_1_sobre_lo_desplegado_deja_el_servidor_coincidiendo(desplegado):
+    srv, estado = desplegado
+    config = cargar(RUTA)
+    _, res = await aplicar_real(srv, config, estado)
+    assert res.fallos == [] and res.bloqueadas == []
+    await comprobar_orden(srv)
+    c = por_nombre(srv)
+    for nombre in ("👋・bienvenida", "🙋・presentaciones", "📈・niveles", "🧪・pruebas-bot"):
+        assert c[nombre].tipo == "text"
+    # presentaciones lleva la plantilla; la guia menciona el canal nuevo; el panel tiene el boton de Novedades
+    assert [m.embed.title for m in c["🙋・presentaciones"].mensajes.values()] == ["🙋 Preséntate"]
+    info = list(c["ℹ️・info-estudio"].mensajes.values())
+    assert f"<#{c['🙋・presentaciones'].id}>" in info[1].embed.description
+    assert info[2].embed.title == "🎭 Especialidades y avisos" and "🔔 Novedades" in info[2].embed.description
+    # los mensajes ya publicados se EDITAN (mismo ID): no se repite ni se borra nada
+    assert not any("mensaje antiguo del bot borrado" in h for h in res.hechos)
+    # con el bot en el minimo de permisos, el plan da todo en omitir
+    plan = plan_de(srv, config, estado, admin=False, permisos=MINIMO_BOT)
+    assert plan.coincide(), "\n".join(lineas_plan(plan))
+    llamadas = list(srv.llamadas)
+    await aplicar_real(srv, config, estado)
+    assert srv.llamadas == llamadas

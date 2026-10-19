@@ -20,7 +20,7 @@ Es una extensión aislada: `profiles/pss.py` + `profiles/pss.toml`, que se carga
 | `PSS_PROFILE_CONFIG` | ruta a un `.toml` | Opcional. Usa otro archivo en vez de `profiles/pss.toml` (p. ej. para un servidor de pruebas). |
 
 Después de definirlas, reinicia/redespliega. En los logs debe salir
-`✅ Perfil PSS cargado (servidor 1420403964746268684, 15 comandos de EITO bloqueados ahí).`
+`✅ Perfil PSS cargado (servidor 1420403964746268684, 16 comandos de EITO bloqueados ahí).`
 Si el TOML no es válido, el bot arranca igual pero sin perfil y los logs listan **todos** los
 errores del archivo, uno por línea con su ruta (por ejemplo
 `roles[3] 'colaborador'.permisos: permiso invalido 'manage_server' (¿'manage_guild'?)`).
@@ -49,6 +49,22 @@ Con el bot ya sin administrador, el plan marca **«bloqueado: el bot no tiene X�
 cosa que requiera un permiso que el bot no posee (p. ej. crear un rol con `manage_guild`). Lo
 que ya existe y no necesita cambios sigue en «omitir».
 
+**Activar la XP (Fase 1) — orden exacto.** `xp = true` rige desde el deploy, y los avisos de nivel
+salen en `📈・niveles`, que crea `!pss aplicar`. Por eso:
+1. **Antes de desplegar**, borra la XP que el bot acumuló en PSS antes del perfil (si no, esas
+   filas contarían como niveles ya ganados). Solo hay datos si el bot ya estaba en PSS antes de
+   instalar el perfil; con el perfil puesto `evento_permitido` evita escribir:
+   ```sql
+   DELETE FROM user_xp      WHERE guild_id = '1420403964746268684';
+   DELETE FROM xp_mensual   WHERE guild_id = '1420403964746268684';
+   DELETE FROM contadores   WHERE guild_id = '1420403964746268684';
+   DELETE FROM ganadores_mes WHERE guild_id = '1420403964746268684';
+   DELETE FROM fundadores   WHERE guild_id = '1420403964746268684';
+   ```
+2. Despliega y **ejecuta `!pss aplicar` justo después**. Hasta que cree `📈・niveles`, un aviso
+   de nivel saldría en el canal donde escribió la persona.
+3. `!pss plan`: todo en «omitir».
+
 Tras aplicar, a mano:
 - **Arrastra «Propietario» por encima del rol del bot** (el bot no puede subir un rol por
   encima de sí mismo). Ese rol no tiene permisos: solo color y separación en la lista.
@@ -75,6 +91,7 @@ Tras aplicar, a mano:
 |---|---|
 | `[perfil]` | `nombre`, `guild_id`, `owner_id` (solo verificación), `gestores` (keys de roles que pueden usar `!pss`; vacío = solo el dueño) |
 | `[eventos]` | `xp`, `voz`, `anti_multicuentas` (true/false), `rol_al_entrar`, `bienvenida`, `canal_logs` (keys) |
+| `[bienvenida]` | `titulo`, `descripcion`, `color`: el embed de bienvenida; admite `{usuario}`, `{servidor}`, `{numero}`, `{canal:key}` y `{rol:key}` |
 | `[comandos]` | `bloquear = [...]` comandos de EITO que no funcionan en este servidor |
 | `[recursos]` | `[recursos.roles]`, `[recursos.canales]`, `[recursos.categorias]`: qué rol, canal o categoría de PSS usa cada sistema de EITO (ver «Recursos de los sistemas de EITO» en la sección 5) |
 | `[ayuda]` | `titulo`, `descripcion`, `pie` y `[[ayuda.secciones]]` (`titulo` + `comandos = [{ comando, uso, texto, solo_moderadores }]`): la ayuda de este servidor (ver «Ayuda del servidor» en la sección 5). Cada `comando` debe existir en el bot y no estar en `bloquear`; `texto` admite `{canal:key}` y `{rol:key}` |
@@ -166,14 +183,20 @@ canal `🛡️・registros` de Staff; deja categorías y canales en el orden del
 - No publica proyectos: la organización no tiene repositorios públicos
   (consulta del 2026-10-18). Los canales de proyecto irán en 🔒 Equipo y el mensaje de
   «proyectos activos» están **comentados** en el TOML como ejemplo; no se publica texto de relleno.
-- Estructura pequeña a propósito: 13 canales de texto, anuncios y foros (máximo 16) y 2 de voz.
+- Estructura pequeña a propósito: 17 canales de texto, anuncios y foros y 2 de voz.
   Lo demás está comentado en el TOML como plantilla: `#staff-chat`, canales de proyecto, **una
   categoría por juego** (`🎮 » [JUEGO]` con noticias = news, códigos, sugerencias y bug-report =
   foro) y **`🗄️ » ARCHIVO`** (solo lectura para todos).
 
 ### Eventos de EITO en PSS (`[eventos]`)
-- `xp = false`: sin XP por mensajes ni avisos de subida de nivel (`!nivel`, `!top`, `!perfil`
-  siguen respondiendo, con ceros). `voz = false`: sin XP ni contadores por voz.
+- `xp = true`: XP por mensajes (cooldown de 60 s, los comandos no cuentan), niveles, `!nivel` y
+  `!top`. Los avisos de subida de nivel salen en `📈・niveles` (solo lectura; escribe el bot). **No
+  hay recompensas por nivel en PSS** (el rol y canal de nivel 10 son de EITO): cruzar el nivel 10
+  solo da el aviso de nivel. `voz = false`: sin XP ni contadores por voz.
+- `bienvenida = "bienvenida"` y la sección `[bienvenida]`: el embed de bienvenida (título y
+  descripción, con `{usuario}`, `{servidor}`, `{numero}`, `{canal:key}` y `{rol:key}`) sale del
+  TOML, no del código. Enlaza a `#📜・reglas`, `#ℹ️・info-estudio` y `#🙋・presentaciones`. Sin la
+  sección, se usa un texto por defecto. La bienvenida de EITO no cambia.
 - `anti_multicuentas = true`: como PSS es público, **se aplica el filtro de cuentas nuevas** de EITO
   (expulsa cuentas con menos de `EDAD_MINIMA_DIAS` días, por defecto 7; esa variable es global,
   también vale para EITO; las excepciones se dan con `!permitir <ID>`). El filtro no escucha
@@ -186,12 +209,15 @@ canal `🛡️・registros` de Staff; deja categorías y canales en el orden del
 ### Comandos bloqueados en PSS
 `!setup`, `!setupsteam`, `!setuprecompensas`, `!crearvcs`, `!panelcochipuerco`, `!panelroles`,
 `!reglas`, `!info`/`!guia`, `!presentaciones` y `!paneltickets` (crearían o publicarían
-estructura de EITO, y los tickets usan IDs de roles de EITO), más `!steam`, `!jugar`, `!nivel`,
-`!top` y `!perfil` (niveles, perfiles de Steam y partidas son de la comunidad de EITO). Quien los
-use en PSS lee **«Este comando no está disponible en este servidor.»**: los comandos que tienen
-manejador de errores propio (todos salvo `!top`) lo muestran como «❌ Error: …» y `!top`, que no
-tenía manejador y se quedaba mudo, lo responde el perfil. Moderación, `!encuesta`, `!sugerencia`,
-`!ayuda`, `!anuncio`, `!exportarserver`… siguen funcionando (aunque no todos salen en la ayuda).
+estructura de EITO, y los tickets usan IDs de roles de EITO), más `!steam`, `!jugar` y `!perfil`
+(perfiles de Steam, partidas y tarjeta de la comunidad de EITO), `!fundadores` (hasta la Fase 2),
+`!importarniveles` (lee avisos de nivel de EITO; nunca) y `!darnivel` (herramienta de pruebas: en un
+servidor real saltaría los niveles). Quien los use en PSS lee **«Este comando no está disponible en
+este servidor.»** (con el prefijo «❌ Error: …» que ponen los manejadores de cada comando). El
+bloqueo es un error que **no** es un `CheckFailure`: `!fundadores` trataba cualquier `CheckFailure`
+como «solo el dueño o un DEVELOPER», y eso era engañoso. `!nivel` y `!top` ya no están bloqueados.
+`!setxp` y `!resetxp` funcionan (solo el dueño, porque `developer` no está mapeado) y salen en la
+ayuda de Administración para quien pueda usarlos.
 
 ### Recursos de los sistemas de EITO (`[recursos]`)
 Los sistemas de EITO (XP y niveles, Activo del mes, rangos por antigüedad, tickets, `!anuncio`…)
@@ -207,7 +233,7 @@ exactamente lo de siempre**; en PSS lo saca de `[recursos]`, que apunta a keys d
   `fundador`, `veterano`, `leyenda`, `og`, `voz_activa`, `superviviente`, `convocador`,
   `developer`, `honor`, `excluidos_activo_mes`, `staff_tickets`, `ping_tickets` (las tres últimas
   y `developer`/`honor` admiten una lista); canales `niveles`, `logros`, `anuncios`, `soporte`,
-  `transcripciones`; categoría `tickets`. Hoy solo está mapeado `anuncios` (para `!anuncio`).
+  `transcripciones`; categoría `tickets`. Hoy están mapeados `anuncios` (para `!anuncio`) y `niveles` (avisos de nivel).
 - `developer` sin mapear (el caso de PSS): `!exportarserver`, `!setxp`, `!resetxp` y
   `!fundadores` son solo del dueño.
 - Si `logros` no está mapeado, los logros caen al canal de `niveles` (el respaldo de EITO).
@@ -253,7 +279,7 @@ bot; si no, el perfil no carga (o `recargar` conserva la versión anterior) y lo
 
 ## 8. Estructura resultante
 
-Visibilidad y quién escribe en cada categoría (13 canales de texto, anuncios y foros + 2 de voz). «Existente» =
+Visibilidad y quién escribe en cada categoría (17 canales de texto, anuncios y foros + 2 de voz). «Existente» =
 ya estaba en el servidor; «del bot» = lo creó el perfil antes. Los existentes se renombran con
 `adoptar = true` + `nombre_actual` (solo el nombre; nunca se cambia su tema). Las categorías
 `📢 Anuncios`, `🟥 Roblox` y `🛠️ Soporte` desaparecen del TOML: sus canales se mueven y quedan
@@ -262,13 +288,16 @@ vacías (a borrar a mano); `📌 Estudio` se reutiliza y pasa a llamarse `📌 �
 ```
 📌 » IMPORTANTE   [👁️ ven: todos · escriben: Developer + Administrador (+ bot)]
   ├─ 📜・reglas             del bot, se renombra · solo las reglas
+  ├─ 👋・bienvenida         nuevo · el bot da aquí la bienvenida (texto en [bienvenida])
   ├─ 📣・anuncios           del bot, se convierte en canal de ANUNCIOS y se mueve · requiere Comunidad
-  └─ ℹ️・info-estudio       nuevo · info del estudio, guía y botones de especialidad
+  └─ ℹ️・info-estudio       nuevo · info del estudio, guía y botones (especialidades y 🔔 Novedades)
 💬 » COMUNIDAD    [👁️ ven: todos · escriben: todos]
   ├─ 💬・general            existente (general), se renombra
+  ├─ 🙋・presentaciones     nuevo · con la plantilla (nombre, especialidad, en qué trabajas, GitHub/portfolio)
   ├─ 📸・showcase           del bot, se renombra · cualquiera publica
   ├─ 💡・sugerencias        nuevo · nombre exacto que usa !sugerencia
   ├─ 🤖・comandos           nuevo
+  ├─ 📈・niveles            nuevo · SOLO LECTURA: avisos de nivel (escribe el bot)
   └─ 🎲・no-relacionado     existente (no-relacionado), se renombra
 💻 » DESARROLLO   [👁️ ven: todos · escriben: todos]
   ├─ 🟥・scripting-luau     del bot, se renombra y se mueve desde 🟥 Roblox
@@ -280,12 +309,15 @@ vacías (a borrar a mano); `📌 Estudio` se reutiliza y pasa a llamarse `📌 �
   ├─ 🗓️・planificación-de-sesiones   existente, se renombra y se sincroniza (privado)
   └─ 🔊 Reuniones           voz existente, se sincroniza (privada); sin renombrar
 🛡️ » STAFF        [🔒 ven y escriben: Propietario + Administrador (+ bot)]
-  └─ 🛡️・registros          del bot, se renombra · logs de moderación
+  ├─ 🛡️・registros          del bot, se renombra · logs de moderación
+  └─ 🧪・pruebas-bot        nuevo · para probar comandos del bot
 ```
 
 Los roles y sus permisos están en `profiles/pss.toml` (Propietario sin permisos; Administrador
 con gestión del servidor pero sin `administrator`; Developer existente, sin tocar; Colaborador y
-Miembro con permisos básicos; Scripter, Builder y UI autoasignables y sin permisos).
+Miembro con permisos básicos; Helper —sin permisos, lo da el staff a mano a quien ayuda en el foro—;
+Scripter, Builder, UI y 🔔 Novedades autoasignables con botón en `#info-estudio` y sin permisos;
+Novedades es mencionable).
 Todo lo demás está comentado en el TOML como ejemplo.
 
 ## 9. Pasos manuales en Discord
@@ -309,8 +341,8 @@ mano al abrirlo a la comunidad:
 5. **Filtro de contenido multimedia explícito:** analizar el contenido de **todos los miembros**.
 6. **Onboarding** (Ajustes del servidor → Onboarding; requiere Comunidad): configura **solo los
    canales por defecto** (`#reglas`, `#info-estudio`, `#general`, `#showcase`…). **No añadas
-   preguntas que den roles:** las especialidades (Scripter, Builder, UI) se eligen con los botones
-   del bot en `#info-estudio`, y el rol «Miembro» lo da el propio bot al entrar.
+   preguntas que den roles:** las especialidades (Scripter, Builder, UI) y 🔔 Novedades se eligen con
+   los botones del bot en `#info-estudio`, y el rol «Miembro» lo da el propio bot al entrar.
 
 ## 10. Desactivarlo y retirarlo por completo
 

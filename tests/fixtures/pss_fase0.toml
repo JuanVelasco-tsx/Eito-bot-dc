@@ -1,0 +1,478 @@
+# Perfil temporal de Phantom Shadows Studios (PSS) para el bot Eito.
+# Se activa con PSS_PROFILE_ENABLED=1. Guia completa: docs/phantom-shadows-studios.md
+#
+# PSS es un servidor PUBLICO para la comunidad: solo "🔒 » EQUIPO" y "🛡️ » STAFF" son privados.
+# Formato de nombres: categorias "emoji » NOMBRE", canales "emoji・nombre".
+#
+# Reglas de este archivo:
+#   - Cada recurso tiene una `key` estable (a-z, 0-9, _) que NO debe cambiar: es la clave del
+#     mapeo key -> ID de Discord en la tabla perfil_recursos. Si renombras algo que ya esta
+#     mapeado (lo creo yo), se EDITA el mismo recurso: no se crea un duplicado.
+#   - Nada se borra jamas (canales, categorias, roles). Un recurso que ya existia y no creo el
+#     bot solo se toca si lo marcas aqui (`adoptar`, `mover`, `sincronizar_permisos`).
+#     Unica excepcion: al mover un mensaje del bot a otro canal se republica y se borra el
+#     antiguo, solo si es del bot y esta mapeado.
+#   - Estructura pequeña a proposito (15 canales de texto/anuncios/foros y 2 de voz). Lo demas
+#     esta COMENTADO como plantilla: descomentalo cuando haga falta.
+#   - Los canales de anuncios ("news") y los foros ("forum") exigen la funcion COMUNIDAD:
+#     activala antes de `!pss aplicar` (si no, el plan los marca "bloqueado: activa Comunidad").
+#   - Orden: el de `orden` en las categorias y, dentro de cada una, el de `orden` en los canales.
+#   - Tras editar: `!pss recargar` (en Railway, el archivo cambia con un deploy) y `!pss plan`.
+
+[perfil]
+nombre = "Phantom Shadows Studios"
+guild_id = 1420403964746268684
+owner_id = 668148837579227137      # solo verificacion; el dueño real es el del servidor
+gestores = []                      # keys de roles que pueden usar !pss ademas del dueño
+
+[eventos]
+xp = false                         # sin XP por mensajes ni subidas de nivel
+voz = false                        # sin XP ni contadores por voz
+anti_multicuentas = true           # servidor publico: se aplica el filtro de cuentas nuevas de EITO
+rol_al_entrar = "miembro"          # key del rol que se da al entrar
+bienvenida = "general"             # key del canal de bienvenida ("" = ninguno)
+canal_logs = "registros"           # key del canal de logs de moderacion (!kick, !ban, anti-multicuentas...)
+
+[comandos]
+# Comandos de EITO que crearian o publicarian estructura de EITO: no funcionan en PSS.
+bloquear = [
+  "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco",
+  "panelroles", "reglas", "info", "presentaciones", "paneltickets",
+  # Del bot de la comunidad de EITO (niveles, perfiles de Steam, partidas): no aplican en PSS.
+  "steam", "jugar", "nivel", "top", "perfil",
+]
+# Quien los use aqui ve "Este comando no está disponible en este servidor."
+
+# =====================================================================
+#  AYUDA de este servidor (!ayuda). Cada comando debe existir en el bot y NO estar en
+#  `bloquear`. Solo se muestra lo que quien pregunta puede ejecutar (can_run), como en EITO;
+#  `solo_moderadores = true` oculta ademas la linea a quien no puede expulsar ni aislar
+#  (para comandos como !warns, que cualquiera puede usar para ver los suyos).
+#  El texto admite {canal:key} y {rol:key}.
+# =====================================================================
+[ayuda]
+titulo = "📖 Comandos de Phantom Shadows Studios"
+descripcion = "Todos los comandos usan el prefijo `!`"
+pie = "Los comandos de moderación solo los ven los moderadores."
+
+[[ayuda.secciones]]
+titulo = "🎮 Comunidad"
+comandos = [
+  { comando = "ping", texto = "comprueba que el bot responde" },
+  { comando = "avatar", uso = "!avatar [@usuario]", texto = "muestra un avatar en grande" },
+  { comando = "serverinfo", texto = "info del servidor" },
+  { comando = "miembros", texto = "cuántos miembros hay" },
+]
+
+[[ayuda.secciones]]
+titulo = "📊 Utilidad"
+comandos = [
+  { comando = "encuesta", uso = "!encuesta <pregunta>", texto = "crea una encuesta 👍👎" },
+  { comando = "sugerencia", uso = "!sugerencia <texto>", texto = "envía una sugerencia con votación; se publica en {canal:sugerencias}" },
+]
+
+[[ayuda.secciones]]
+titulo = "🛡️ Moderación"
+comandos = [
+  { comando = "borrar", uso = "!borrar <n>", texto = "borra los últimos N mensajes (1–100)" },
+  { comando = "kick", uso = "!kick @usuario [razón]", texto = "expulsa a un miembro" },
+  { comando = "ban", uso = "!ban @usuario [razón]", texto = "banea a un miembro" },
+  { comando = "mute", uso = "!mute @usuario <duración> [razón]", texto = "silencia (ej. 10m, 2h)" },
+  { comando = "unmute", uso = "!unmute @usuario", texto = "quita el silencio" },
+  { comando = "warn", uso = "!warn @usuario [razón]", texto = "avisa a un miembro" },
+  { comando = "warns", uso = "!warns [@usuario]", texto = "muestra los avisos", solo_moderadores = true },
+]
+
+# =====================================================================
+#  RECURSOS de los sistemas de EITO (xp, tickets, rangos, !anuncio...)
+#  Esos sistemas buscan sus roles y canales por ID o nombre fijos de EITO; aqui se les dice cuales
+#  son los de PSS: clave del sistema = key de [[roles]] / [[canales]] / [[categorias]].
+#  Lo que NO este aqui no existe en PSS (nunca se usan los IDs de EITO), asi que cada sistema se
+#  activa añadiendo sus claves. Claves validas: ver RECURSOS_* en profiles/pss_config.py.
+# =====================================================================
+[recursos.canales]
+anuncios = "anuncios"              # !anuncio publica aqui
+
+# =====================================================================
+#  ROLES (de arriba abajo)
+# =====================================================================
+[[roles]]
+key = "propietario"
+nombre = "Propietario"
+color = "#F1C40F"
+hoist = true
+# Se arrastra a mano POR ENCIMA del rol del bot: el plan no avisa de la jerarquia para este rol.
+por_encima_del_bot = true
+permisos = []                      # sin administrator: solo color y separacion en la lista
+# Los roles nuevos se crean por debajo del bot: arrastra este a mano por encima del bot.
+
+[[roles]]
+key = "administrador"
+nombre = "Administrador"
+color = "#E74C3C"
+hoist = true
+permisos = [
+  "view_channel", "send_messages", "read_message_history", "embed_links", "attach_files",
+  "add_reactions", "manage_channels", "manage_roles", "manage_messages", "manage_guild",
+  "view_audit_log", "kick_members", "ban_members", "moderate_members", "mention_everyone",
+]
+
+[[roles]]
+key = "developer"
+nombre = "Developer"
+existing_id = 1561497283315638312
+# Se reutiliza tal cual. NO pongas adoptar = true: el bot le quitaria administrator.
+# RIESGO: mientras tenga administrator, quien lo reciba ignora todos los overrides.
+# Quitaselo a mano (ver "Pasos manuales en Discord" en la guia).
+
+[[roles]]
+key = "colaborador"
+nombre = "Colaborador"
+color = "#3498DB"
+hoist = true
+permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
+
+[[roles]]
+key = "miembro"
+nombre = "Miembro"
+color = "#2ECC71"
+permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
+
+# Especialidades autoasignables con botones (sin permisos).
+[[roles]]
+key = "scripter"
+nombre = "Scripter"
+color = "#9B59B6"
+mentionable = true
+autoasignable = true
+
+[[roles]]
+key = "builder"
+nombre = "Builder"
+color = "#E67E22"
+mentionable = true
+autoasignable = true
+
+[[roles]]
+key = "ui"
+nombre = "UI"
+color = "#1ABC9C"
+mentionable = true
+autoasignable = true
+
+# =====================================================================
+#  CATEGORIAS (orden: IMPORTANTE, COMUNIDAD, DESARROLLO, VOZ, EQUIPO, STAFF)
+#  Solo EQUIPO y STAFF son privadas.
+#  Las categorias antiguas "📢 Anuncios", "🟥 Roblox" y "🛠️ Soporte" (keys cat_anuncios,
+#  cat_roblox, cat_soporte) ya no estan aqui: sus canales se mueven y el plan las lista como
+#  "vacías, borrar a mano". El bot nunca las borra.
+# =====================================================================
+[[categorias]]
+key = "cat_estudio"                # antes "📌 Estudio"; se reutiliza (se renombra) para IMPORTANTE
+nombre = "📌 » IMPORTANTE"
+orden = 1
+overrides = [                      # visible para todos, solo lectura para @everyone
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+  { objetivo = "developer", permitir = ["send_messages"] },
+  { objetivo = "administrador", permitir = ["send_messages"] },
+]
+
+[[categorias]]
+key = "cat_comunidad"
+nombre = "💬 » COMUNIDAD"
+orden = 2
+
+[[categorias]]
+key = "cat_desarrollo"
+nombre = "💻 » DESARROLLO"
+orden = 3                          # publica
+
+# Plantilla (orden 4): una categoria por juego. Ver mas abajo, junto a los canales.
+# Plantilla (orden 5): "🗄️ » ARCHIVO", solo lectura para todos. Ver mas abajo.
+
+[[categorias]]
+key = "cat_voz"
+nombre = "🔊 » VOZ"
+orden = 6
+
+[[categorias]]
+key = "cat_equipo"
+nombre = "🔒 » EQUIPO"
+orden = 7
+overrides = [                      # privada: el bot se añade solo un override propio
+  { objetivo = "@everyone", denegar = ["view_channel"] },
+  { objetivo = "developer", permitir = ["view_channel"] },
+  { objetivo = "colaborador", permitir = ["view_channel"] },
+  { objetivo = "administrador", permitir = ["view_channel"] },
+]
+
+[[categorias]]
+key = "cat_staff"
+nombre = "🛡️ » STAFF"
+orden = 8
+overrides = [
+  { objetivo = "@everyone", denegar = ["view_channel"] },
+  { objetivo = "propietario", permitir = ["view_channel"] },
+  { objetivo = "administrador", permitir = ["view_channel"] },
+]
+
+# --- Plantillas de categorias (descomenta y adapta) ---------------------------------------
+# [[categorias]]
+# key = "cat_juego1"
+# nombre = "🎮 » [JUEGO]"
+# orden = 4
+#
+# [[categorias]]
+# key = "cat_archivo"
+# nombre = "🗄️ » ARCHIVO"
+# orden = 5
+# overrides = [                    # visible para todos, solo lectura para todos
+#   { objetivo = "@everyone", denegar = ["send_messages", "add_reactions", "create_public_threads", "send_messages_in_threads"] },
+# ]
+
+# =====================================================================
+#  CANALES (15 de texto/anuncios/foros + 2 de voz)
+# =====================================================================
+# --- 📌 » IMPORTANTE (solo lectura) ---
+[[canales]]
+key = "reglas"
+nombre = "📜・reglas"
+categoria = "cat_estudio"
+tema = "Las reglas del servidor."
+orden = 1
+
+# Era un canal de texto creado por el bot: se convierte en canal de ANUNCIOS (news) y se mueve
+# aqui. Requiere Comunidad; sin ella el plan lo marca "bloqueado: activa Comunidad".
+[[canales]]
+key = "anuncios"
+nombre = "📣・anuncios"
+tipo = "news"
+categoria = "cat_estudio"
+tema = "Novedades y avisos oficiales del estudio."
+mover = true
+sincronizar_permisos = true
+orden = 2
+
+[[canales]]
+key = "info_estudio"
+nombre = "ℹ️・info-estudio"
+categoria = "cat_estudio"
+tema = "Quiénes somos, guía para empezar y especialidades."
+orden = 3
+
+# --- 💬 » COMUNIDAD ---
+# Existentes (no los creo yo): se adoptan SOLO para renombrarlos (`nombre_actual` = como se
+# llaman hoy) y se mueven. No se sincronizan: conservan sus permisos (los de todos).
+[[canales]]
+key = "general"
+nombre = "💬・general"
+nombre_actual = "general"
+adoptar = true
+categoria = "cat_comunidad"
+mover = true
+orden = 1
+
+[[canales]]
+key = "showcase"
+nombre = "📸・showcase"
+categoria = "cat_comunidad"
+tema = "Enseña lo que estás haciendo: capturas, clips y proyectos propios."
+orden = 2
+
+# El nombre EXACTO "💡・sugerencias" es el que busca !sugerencia de EITO para publicar ahí.
+[[canales]]
+key = "sugerencias"
+nombre = "💡・sugerencias"
+categoria = "cat_comunidad"
+tema = "Ideas para el servidor y para el estudio. Usa !sugerencia <texto>."
+orden = 3
+
+[[canales]]
+key = "comandos"
+nombre = "🤖・comandos"
+categoria = "cat_comunidad"
+tema = "Aquí se usan los comandos del bot."
+orden = 4
+
+[[canales]]
+key = "no_relacionado"
+nombre = "🎲・no-relacionado"
+nombre_actual = "no-relacionado"
+adoptar = true
+categoria = "cat_comunidad"
+mover = true
+orden = 5
+
+# --- 💻 » DESARROLLO (publica) ---
+# Antes en "🟥 Roblox" (creado por el bot): se renombra y se mueve.
+[[canales]]
+key = "scripting_luau"
+nombre = "🟥・scripting-luau"
+categoria = "cat_desarrollo"
+tema = "Scripting en Luau."
+mover = true
+orden = 1
+
+# FORO nuevo. Un canal de texto no se convierte en foro, asi que se crea uno nuevo y el
+# #ayuda actual NO se toca: el plan lo lista como "reemplazado, archívalo o bórralo a mano".
+# Requiere Comunidad.
+[[canales]]
+key = "ayuda"
+nombre = "❓・ayuda"
+tipo = "forum"
+reemplaza = "ayuda"
+categoria = "cat_desarrollo"
+tema = "¿Tienes una duda? Crea una publicación con tu pregunta."
+orden = 2
+
+# --- 🔊 » VOZ (publica) ---
+[[canales]]
+key = "voz_general"
+nombre = "🔊 General"
+tipo = "voice"
+categoria = "cat_voz"
+orden = 1
+
+# --- 🔒 » EQUIPO (privada: Developer, Colaborador y Administrador) ---
+# Existentes: se renombran (adoptar), se mueven aqui y se SINCRONIZAN con EQUIPO para que
+# dejen de ser publicos. No se cambia su tema.
+[[canales]]
+key = "info_importante"
+nombre = "📌・info-importante"
+nombre_actual = "info-importante"
+adoptar = true
+categoria = "cat_equipo"
+mover = true
+sincronizar_permisos = true
+orden = 1
+
+[[canales]]
+key = "planificacion_sesiones"
+nombre = "🗓️・planificación-de-sesiones"
+nombre_actual = "planificación-de-sesiones"
+adoptar = true
+categoria = "cat_equipo"
+mover = true
+sincronizar_permisos = true
+orden = 2
+
+# Voz privada del equipo (el canal de voz publico para la comunidad es "🔊 General", en VOZ).
+# Sin renombrar: conserva su nombre actual.
+[[canales]]
+key = "reuniones"
+nombre = "Reuniones"
+tipo = "voice"
+categoria = "cat_equipo"
+mover = true
+sincronizar_permisos = true
+orden = 3
+
+# TODO: un canal por proyecto activo, aqui en EQUIPO. La organización de GitHub no tiene
+# repositorios públicos (consulta del 2026-10-18), así que no hay ninguno que listar todavía.
+# [[canales]]
+# key = "proy_nombre_del_proyecto"
+# nombre = "📁・nombre-del-proyecto"
+# categoria = "cat_equipo"
+# orden = 4
+
+# --- 🛡️ » STAFF (privada: solo Propietario y Administrador) ---
+[[canales]]
+key = "registros"
+nombre = "🛡️・registros"
+categoria = "cat_staff"
+tema = "Registro de moderación del bot."
+orden = 1
+
+# [[canales]]
+# key = "staff_chat"
+# nombre = "💬・staff-chat"
+# categoria = "cat_staff"
+# orden = 2
+
+# --- Plantilla: una categoria por juego (descomenta junto con [[categorias]] cat_juego1) ---
+# [[canales]]
+# key = "juego1_noticias"
+# nombre = "📰・noticias"
+# tipo = "news"                    # anuncios: requiere Comunidad
+# categoria = "cat_juego1"
+# orden = 1
+#
+# [[canales]]
+# key = "juego1_codigos"
+# nombre = "🎁・códigos"
+# categoria = "cat_juego1"
+# orden = 2
+#
+# [[canales]]
+# key = "juego1_sugerencias"
+# nombre = "💡・sugerencias-juego"  # distinto del global: el de EITO es "💡・sugerencias"
+# categoria = "cat_juego1"
+# orden = 3
+#
+# [[canales]]
+# key = "juego1_bug_report"
+# nombre = "🐞・bug-report"
+# tipo = "forum"                   # foro: requiere Comunidad
+# categoria = "cat_juego1"
+# tema = "Reporta un error: crea una publicación con pasos para reproducirlo."
+# orden = 4
+#
+# --- Plantilla: ARCHIVO (solo lectura para todos). Mueve aqui los canales viejos a mano ---
+# --- o declaralos con mover = true; no tiene canales propios.
+
+# =====================================================================
+#  MENSAJES (los publica y mantiene el bot; las menciones no hacen ping)
+#  #reglas: solo las reglas. #info-estudio: info, guia y botones de especialidad.
+#  Si cambias el canal de un mensaje ya publicado, se publica en el nuevo y se BORRA el
+#  antiguo (solo si es del bot y esta mapeado).
+# =====================================================================
+[[mensajes]]
+key = "msg_reglas"
+canal = "reglas"
+titulo = "📜 Reglas"
+descripcion = """1️⃣ **Respeto ante todo.** Nada de insultos, acoso ni discriminación.
+2️⃣ **Sin spam ni publicidad.** Nada de enlaces sospechosos ni invitaciones a otros servidores sin permiso del staff.
+3️⃣ **No publiques código ni assets ajenos sin permiso** de su autor. Si algo no es tuyo, cita la fuente o no lo subas.
+4️⃣ **Usa cada canal para su tema:** dudas en {canal:ayuda}, tus trabajos en {canal:showcase}, ideas en {canal:sugerencias}, comandos del bot en {canal:comandos}, charla libre en {canal:general} y {canal:no_relacionado}.
+5️⃣ **Respeta al staff.** Si no estás de acuerdo con una decisión, habla con ellos por privado.
+
+⚖️ Incumplir las reglas puede acabar en aviso, silencio, expulsión o baneo."""
+color = "#E74C3C"
+
+[[mensajes]]
+key = "msg_info_estudio"
+canal = "info_estudio"
+titulo = "👻 Phantom Shadows Studios"
+descripcion = """Somos un estudio de desarrollo centrado en **Roblox** y otros proyectos tecnológicos.
+
+🔗 **GitHub:** https://github.com/Phantom-Shadows-Studios"""
+color = "#5865F2"
+
+[[mensajes]]
+key = "msg_guia"
+canal = "info_estudio"
+titulo = "🧭 Guía para nuevos integrantes"
+descripcion = """¡Bienvenido/a! Para empezar:
+
+📜 Lee {canal:reglas}.
+💬 Preséntate en {canal:general}.
+🎨 Enseña lo que haces en {canal:showcase}.
+💻 Scripting de Roblox en {canal:scripting_luau}.
+❓ ¿Dudas? Crea una publicación en {canal:ayuda}.
+🎭 Elige tus especialidades con los botones de abajo."""
+color = "#2ECC71"
+
+[[mensajes]]
+key = "msg_especialidades"
+canal = "info_estudio"
+titulo = "🎭 Tus especialidades"
+descripcion = "Pulsa un botón para darte o quitarte una especialidad."
+color = "#9B59B6"
+botones_roles = ["scripter", "builder", "ui"]
+
+# Proyectos activos: descomentar cuando haya proyectos que mostrar. No se publica texto de relleno.
+# [[mensajes]]
+# key = "msg_proyectos_activos"
+# canal = "info_estudio"
+# titulo = "📂 Proyectos activos"
+# descripcion = "..."

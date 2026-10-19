@@ -11,12 +11,14 @@ import pytest
 from discord.ext import commands
 
 from profiles import pss_db
-from profiles.pss import AYUDA_PSS, MSG_NO_DISPONIBLE, PerfilPSS, PssNoAplica, PssSinPermiso
+from profiles.pss import (
+    AYUDA_PSS, MSG_NO_DISPONIBLE, PerfilPSS, PssComandoBloqueado, PssNoAplica, PssSinPermiso,
+)
 from profiles.pss_config import ConfigInvalida, cargar, comandos_de_ayuda_inexistentes, parsear
 
 RUTA = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 G_PSS, OTRO = 1420403964746268684, 5
-NUEVOS_BLOQUEADOS = ("steam", "jugar", "nivel", "top", "perfil")
+NUEVOS_BLOQUEADOS = ("steam", "jugar", "perfil", "fundadores", "importarniveles", "darnivel")
 
 
 @pytest.fixture
@@ -100,11 +102,13 @@ async def test_un_miembro_ve_comunidad_y_utilidad_pero_no_moderacion(mod, fakes,
     assert embed.title == "📖 Comandos de Phantom Shadows Studios"
     campos = lineas(embed)
     assert list(campos) == ["🎮 Comunidad", "📊 Utilidad"]
-    assert [x.split("`")[1] for x in campos["🎮 Comunidad"]] == ["!ping", "!avatar [@usuario]", "!serverinfo", "!miembros"]
+    assert [x.split("`")[1] for x in campos["🎮 Comunidad"]] == [
+        "!ping", "!avatar [@usuario]", "!serverinfo", "!miembros", "!nivel [@usuario]", "!top"]
     assert [x.split("`")[1] for x in campos["📊 Utilidad"]] == ["!encuesta <pregunta>", "!sugerencia <texto>"]
     assert "<#777>" in campos["📊 Utilidad"][1]                   # indica el canal de sugerencias (mencion)
     texto = "\n".join(f.value for f in embed.fields)
-    for fuera in ("!nivel", "!top", "!perfil", "!steam", "!jugar", "!warn", "!kick", "!borrar", "!ayuda"):
+    for fuera in ("!perfil", "!steam", "!jugar", "!fundadores", "!darnivel", "!warn", "!kick", "!borrar",
+                  "!permitir", "!anuncio", "!setxp", "!ayuda"):
         assert fuera not in texto, fuera
 
 
@@ -114,7 +118,27 @@ async def test_un_moderador_ve_ademas_la_moderacion(mod, fakes, perfil):
     campos = lineas(ctx.respuestas[0][1]["embed"])
     assert list(campos) == ["🎮 Comunidad", "📊 Utilidad", "🛡️ Moderación"]
     assert [x.split("`")[1].split()[0] for x in campos["🛡️ Moderación"]] == [
-        "!borrar", "!kick", "!ban", "!mute", "!unmute", "!warn", "!warns"]
+        "!borrar", "!kick", "!ban", "!mute", "!unmute", "!warn", "!warns", "!permitir", "!despermitir"]
+
+
+async def test_la_administracion_la_ven_solo_quienes_pueden_usar_esos_comandos(mod, fakes, perfil):
+    def nombres(ctx):
+        campos = lineas(ctx.respuestas[0][1]["embed"])
+        return [x.split("`")[1].split()[0] for x in campos.get("⚙️ Administración", [])]
+
+    # un moderador: sin Administracion
+    ctx = ctx_de(mod, fakes, G_PSS, permisos=MODERADOR)
+    await perfil.enviar_ayuda(ctx)
+    assert nombres(ctx) == []
+    # un administrador que NO es el dueño: !anuncio (Gestionar servidor), pero no exportarserver/setxp/resetxp
+    ctx = ctx_de(mod, fakes, G_PSS, permisos=discord.Permissions.all().value)
+    await perfil.enviar_ayuda(ctx)
+    assert nombres(ctx) == ["!anuncio"]
+    # el dueño las ve las cuatro
+    ctx = ctx_de(mod, fakes, G_PSS, permisos=discord.Permissions.all().value)
+    ctx.guild.owner_id = ctx.author.id
+    await perfil.enviar_ayuda(ctx)
+    assert nombres(ctx) == ["!anuncio", "!exportarserver", "!setxp", "!resetxp"]
 
 
 async def test_solo_ve_los_comandos_que_puede_ejecutar(mod, fakes, perfil):
@@ -226,10 +250,12 @@ def test_el_contenido_inicial_de_la_ayuda_de_pss():
     ayuda = cargar(RUTA).ayuda
     contenido = {s.titulo: [e.comando for e in s.entradas] for s in ayuda.secciones}
     assert contenido == {
-        "🎮 Comunidad": ["ping", "avatar", "serverinfo", "miembros"],
+        "🎮 Comunidad": ["ping", "avatar", "serverinfo", "miembros", "nivel", "top"],
         "📊 Utilidad": ["encuesta", "sugerencia"],
-        "🛡️ Moderación": ["borrar", "kick", "ban", "mute", "unmute", "warn", "warns"],
+        "🛡️ Moderación": ["borrar", "kick", "ban", "mute", "unmute", "warn", "warns", "permitir", "despermitir"],
+        "⚙️ Administración": ["anuncio", "exportarserver", "setxp", "resetxp"],
     }
+    assert not {e.comando for s in ayuda.secciones for e in s.entradas} & set(cargar(RUTA).comandos_bloqueados)
     assert [e.solo_moderadores for s in ayuda.secciones for e in s.entradas if e.comando == "warns"] == [True]
     assert "{canal:sugerencias}" in next(e.texto for s in ayuda.secciones for e in s.entradas if e.comando == "sugerencia")
 
@@ -239,8 +265,9 @@ def test_los_nuevos_comandos_estan_bloqueados_y_el_check_los_para(perfil, mod, f
     for nombre in NUEVOS_BLOQUEADOS:
         assert nombre in perfil.config.comandos_bloqueados
         ctx = ctx_de(mod, fakes, G_PSS, comando=nombre)
-        with pytest.raises(commands.CheckFailure) as e:
+        with pytest.raises(commands.CommandError) as e:
             perfil._bloquear_comando(ctx)
+        assert not isinstance(e.value, commands.CheckFailure)
         assert str(e.value) == MSG_NO_DISPONIBLE == "Este comando no está disponible en este servidor."
         assert perfil._bloquear_comando(ctx_de(mod, fakes, OTRO, comando=nombre)) is True    # en EITO siguen igual
 
@@ -249,7 +276,7 @@ def test_los_nuevos_comandos_estan_bloqueados_y_el_check_los_para(perfil, mod, f
 async def test_lo_que_responde_cada_comando_bloqueado(mod, fakes, perfil, nombre):
     """Pasa el error del check por el manejador .error REAL del comando (y por el cog)."""
     ctx = ctx_de(mod, fakes, G_PSS, comando=nombre)
-    with pytest.raises(commands.CheckFailure) as e:
+    with pytest.raises(commands.CommandError) as e:
         await mod.bot.get_command(nombre).can_run(ctx)             # el check global, tal cual
     # dispatch_error llama al manejador .error del comando y despues bot.dispatch("command_error"),
     # que el bot real reparte a los listeners: aqui se reparte a mano (sin bucle de eventos de Discord)
@@ -259,12 +286,26 @@ async def test_lo_que_responde_cada_comando_bloqueado(mod, fakes, perfil, nombre
     assert [ev[0] for ev in eventos] == ["command_error"]
     await perfil.on_command_error(ctx, e.value)
     respuestas = [r[0] for r in ctx.respuestas]
-    # con manejador propio contesta el manejador (una vez); sin el (!top) contesta el cog
-    if nombre == "top":
-        assert not mod.bot.get_command(nombre).has_error_handler()
-        assert respuestas == ["❌ Este comando no está disponible en este servidor."]
-    else:
-        assert respuestas == ["❌ Error: Este comando no está disponible en este servidor."]
+    # todos tienen manejador propio: contesta el manejador (una vez) y el cog no repite.
+    # Ninguno dice «solo el dueño o un DEVELOPER» (el de !fundadores lo decia con cualquier CheckFailure).
+    assert mod.bot.get_command(nombre).has_error_handler()
+    assert respuestas == ["❌ Error: Este comando no está disponible en este servidor."]
+
+
+async def test_un_comando_bloqueado_sin_manejador_lo_responde_el_perfil_y_con_manejador_no_se_repite(perfil):
+    enviados = []
+
+    async def send(texto, **kw):
+        enviados.append(texto)
+
+    error = PssComandoBloqueado(MSG_NO_DISPONIBLE)
+    sin = types.SimpleNamespace(has_error_handler=lambda: False)
+    con = types.SimpleNamespace(has_error_handler=lambda: True)
+    await perfil.on_command_error(types.SimpleNamespace(send=send, command=sin, cog=None), error)
+    assert enviados == ["❌ Este comando no está disponible en este servidor."]
+    await perfil.on_command_error(types.SimpleNamespace(send=send, command=con, cog=None), error)
+    await perfil.on_command_error(types.SimpleNamespace(send=send, command=sin, cog=None), commands.CommandError("otro"))
+    assert len(enviados) == 1
 
 
 async def test_la_ayuda_no_dispara_respuestas_al_comprobar_comandos_bloqueados(mod, fakes, perfil):

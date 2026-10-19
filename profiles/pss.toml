@@ -12,7 +12,7 @@
 #     bot solo se toca si lo marcas aqui (`adoptar`, `mover`, `sincronizar_permisos`).
 #     Unica excepcion: al mover un mensaje del bot a otro canal se republica y se borra el
 #     antiguo, solo si es del bot y esta mapeado.
-#   - Estructura pequeña a proposito (15 canales de texto/anuncios/foros y 2 de voz). Lo demas
+#   - Estructura pequeña a proposito (17 canales de texto/anuncios/foros y 2 de voz). Lo demas
 #     esta COMENTADO como plantilla: descomentalo cuando haga falta.
 #   - Los canales de anuncios ("news") y los foros ("forum") exigen la funcion COMUNIDAD:
 #     activala antes de `!pss aplicar` (si no, el plan los marca "bloqueado: activa Comunidad").
@@ -26,20 +26,36 @@ owner_id = 668148837579227137      # solo verificacion; el dueño real es el del
 gestores = []                      # keys de roles que pueden usar !pss ademas del dueño
 
 [eventos]
-xp = false                         # sin XP por mensajes ni subidas de nivel
+xp = true                          # XP por mensajes, niveles y !nivel / !top (avisos en 📈・niveles)
 voz = false                        # sin XP ni contadores por voz
 anti_multicuentas = true           # servidor publico: se aplica el filtro de cuentas nuevas de EITO
 rol_al_entrar = "miembro"          # key del rol que se da al entrar
-bienvenida = "general"             # key del canal de bienvenida ("" = ninguno)
+bienvenida = "bienvenida"          # key del canal de bienvenida ("" = ninguno); texto en [bienvenida]
 canal_logs = "registros"           # key del canal de logs de moderacion (!kick, !ban, anti-multicuentas...)
+
+# Mensaje de bienvenida (embed en el canal `bienvenida`). Admite {usuario}, {servidor}, {numero}
+# (miembros del servidor), {canal:key} y {rol:key}.
+[bienvenida]
+titulo = "👋 ¡Bienvenido/a a {servidor}!"
+descripcion = """¡Hola {usuario}! 🎉
+
+📜 Lee las reglas en {canal:reglas}.
+ℹ️ Conoce el estudio y elige tus especialidades en {canal:info_estudio}.
+🙋 Preséntate en {canal:presentaciones}.
+
+Eres el miembro **#{numero}** 🎊"""
+color = "#2ECC71"
 
 [comandos]
 # Comandos de EITO que crearian o publicarian estructura de EITO: no funcionan en PSS.
 bloquear = [
   "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco",
   "panelroles", "reglas", "info", "presentaciones", "paneltickets",
-  # Del bot de la comunidad de EITO (niveles, perfiles de Steam, partidas): no aplican en PSS.
-  "steam", "jugar", "nivel", "top", "perfil",
+  # Del bot de la comunidad de EITO (perfiles de Steam, partidas, tarjeta de perfil): no aplican en PSS.
+  "steam", "jugar", "perfil",
+  # fundadores: se habilita en la Fase 2. importarniveles: nunca (lee avisos de niveles de EITO).
+  # darnivel: herramienta de pruebas, no debe existir en un servidor real.
+  "fundadores", "importarniveles", "darnivel",
 ]
 # Quien los use aqui ve "Este comando no está disponible en este servidor."
 
@@ -53,7 +69,7 @@ bloquear = [
 [ayuda]
 titulo = "📖 Comandos de Phantom Shadows Studios"
 descripcion = "Todos los comandos usan el prefijo `!`"
-pie = "Los comandos de moderación solo los ven los moderadores."
+pie = "Cada uno ve solo los comandos que puede usar."
 
 [[ayuda.secciones]]
 titulo = "🎮 Comunidad"
@@ -62,6 +78,8 @@ comandos = [
   { comando = "avatar", uso = "!avatar [@usuario]", texto = "muestra un avatar en grande" },
   { comando = "serverinfo", texto = "info del servidor" },
   { comando = "miembros", texto = "cuántos miembros hay" },
+  { comando = "nivel", uso = "!nivel [@usuario]", texto = "muestra tu nivel y XP" },
+  { comando = "top", texto = "ranking de niveles del servidor" },
 ]
 
 [[ayuda.secciones]]
@@ -81,6 +99,17 @@ comandos = [
   { comando = "unmute", uso = "!unmute @usuario", texto = "quita el silencio" },
   { comando = "warn", uso = "!warn @usuario [razón]", texto = "avisa a un miembro" },
   { comando = "warns", uso = "!warns [@usuario]", texto = "muestra los avisos", solo_moderadores = true },
+  { comando = "permitir", uso = "!permitir <ID>", texto = "deja entrar a una cuenta nueva legítima (anti-multicuentas)" },
+  { comando = "despermitir", uso = "!despermitir <ID>", texto = "quita esa excepción" },
+]
+
+[[ayuda.secciones]]
+titulo = "⚙️ Administración"
+comandos = [
+  { comando = "anuncio", uso = "!anuncio [everyone|here] <texto>", texto = "publica un anuncio en {canal:anuncios} (con ping si pones everyone o here)" },
+  { comando = "exportarserver", texto = "exporta roles y canales a JSON por mensaje privado" },
+  { comando = "setxp", uso = "!setxp @usuario <xp>", texto = "fija la XP total de alguien" },
+  { comando = "resetxp", uso = "!resetxp @usuario", texto = "pone en 0 la XP total de alguien" },
 ]
 
 # =====================================================================
@@ -92,6 +121,7 @@ comandos = [
 # =====================================================================
 [recursos.canales]
 anuncios = "anuncios"              # !anuncio publica aqui
+niveles = "niveles"                # avisos de nivel (sumar_xp) y, mas adelante, logros y Activo del mes
 
 # =====================================================================
 #  ROLES (de arriba abajo)
@@ -132,6 +162,14 @@ color = "#3498DB"
 hoist = true
 permisos = ["view_channel", "send_messages", "read_message_history", "embed_links", "attach_files", "add_reactions"]
 
+# Quien ayuda en el foro ❓・ayuda. Lo da el staff a mano; sin permisos especiales (solo se ve en la lista).
+[[roles]]
+key = "helper"
+nombre = "Helper"
+color = "#1ABC9C"
+hoist = true
+permisos = []
+
 [[roles]]
 key = "miembro"
 nombre = "Miembro"
@@ -157,6 +195,14 @@ autoasignable = true
 key = "ui"
 nombre = "UI"
 color = "#1ABC9C"
+mentionable = true
+autoasignable = true
+
+# Opt-in de avisos: se pulsa el boton de #info-estudio. Es mencionable para las novedades.
+[[roles]]
+key = "novedades"
+nombre = "🔔 Novedades"
+color = "#F1C40F"
 mentionable = true
 autoasignable = true
 
@@ -231,7 +277,7 @@ overrides = [
 # ]
 
 # =====================================================================
-#  CANALES (15 de texto/anuncios/foros + 2 de voz)
+#  CANALES (17 de texto/anuncios/foros + 2 de voz)
 # =====================================================================
 # --- 📌 » IMPORTANTE (solo lectura) ---
 [[canales]]
@@ -240,6 +286,13 @@ nombre = "📜・reglas"
 categoria = "cat_estudio"
 tema = "Las reglas del servidor."
 orden = 1
+
+[[canales]]
+key = "bienvenida"
+nombre = "👋・bienvenida"
+categoria = "cat_estudio"
+tema = "Aquí damos la bienvenida a quien entra."
+orden = 2
 
 # Era un canal de texto creado por el bot: se convierte en canal de ANUNCIOS (news) y se mueve
 # aqui. Requiere Comunidad; sin ella el plan lo marca "bloqueado: activa Comunidad".
@@ -251,14 +304,14 @@ categoria = "cat_estudio"
 tema = "Novedades y avisos oficiales del estudio."
 mover = true
 sincronizar_permisos = true
-orden = 2
+orden = 3
 
 [[canales]]
 key = "info_estudio"
 nombre = "ℹ️・info-estudio"
 categoria = "cat_estudio"
-tema = "Quiénes somos, guía para empezar y especialidades."
-orden = 3
+tema = "Quiénes somos, guía para empezar, especialidades y avisos."
+orden = 4
 
 # --- 💬 » COMUNIDAD ---
 # Existentes (no los creo yo): se adoptan SOLO para renombrarlos (`nombre_actual` = como se
@@ -273,11 +326,18 @@ mover = true
 orden = 1
 
 [[canales]]
+key = "presentaciones"
+nombre = "🙋・presentaciones"
+categoria = "cat_comunidad"
+tema = "Cuéntanos quién eres y en qué trabajas."
+orden = 2
+
+[[canales]]
 key = "showcase"
 nombre = "📸・showcase"
 categoria = "cat_comunidad"
 tema = "Enseña lo que estás haciendo: capturas, clips y proyectos propios."
-orden = 2
+orden = 3
 
 # El nombre EXACTO "💡・sugerencias" es el que busca !sugerencia de EITO para publicar ahí.
 [[canales]]
@@ -285,14 +345,26 @@ key = "sugerencias"
 nombre = "💡・sugerencias"
 categoria = "cat_comunidad"
 tema = "Ideas para el servidor y para el estudio. Usa !sugerencia <texto>."
-orden = 3
+orden = 4
 
 [[canales]]
 key = "comandos"
 nombre = "🤖・comandos"
 categoria = "cat_comunidad"
 tema = "Aquí se usan los comandos del bot."
-orden = 4
+orden = 5
+
+# El nombre EXACTO "📈・niveles" es el de EITO; ademas se mapea en [recursos.canales]. Solo lectura:
+# escribe el bot (avisos de nivel).
+[[canales]]
+key = "niveles"
+nombre = "📈・niveles"
+categoria = "cat_comunidad"
+tema = "Avisos de subida de nivel. Mira el tuyo con !nivel y el ranking con !top."
+overrides = [
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+]
+orden = 6
 
 [[canales]]
 key = "no_relacionado"
@@ -301,7 +373,7 @@ nombre_actual = "no-relacionado"
 adoptar = true
 categoria = "cat_comunidad"
 mover = true
-orden = 5
+orden = 7
 
 # --- 💻 » DESARROLLO (publica) ---
 # Antes en "🟥 Roblox" (creado por el bot): se renombra y se mueve.
@@ -383,11 +455,18 @@ categoria = "cat_staff"
 tema = "Registro de moderación del bot."
 orden = 1
 
+[[canales]]
+key = "pruebas_bot"
+nombre = "🧪・pruebas-bot"
+categoria = "cat_staff"
+tema = "Para probar comandos del bot sin molestar."
+orden = 2
+
 # [[canales]]
 # key = "staff_chat"
 # nombre = "💬・staff-chat"
 # categoria = "cat_staff"
-# orden = 2
+# orden = 3
 
 # --- Plantilla: una categoria por juego (descomenta junto con [[categorias]] cat_juego1) ---
 # [[canales]]
@@ -455,20 +534,36 @@ titulo = "🧭 Guía para nuevos integrantes"
 descripcion = """¡Bienvenido/a! Para empezar:
 
 📜 Lee {canal:reglas}.
-💬 Preséntate en {canal:general}.
+🙋 Preséntate en {canal:presentaciones} y charla en {canal:general}.
 🎨 Enseña lo que haces en {canal:showcase}.
 💻 Scripting de Roblox en {canal:scripting_luau}.
 ❓ ¿Dudas? Crea una publicación en {canal:ayuda}.
-🎭 Elige tus especialidades con los botones de abajo."""
+📈 Sube de nivel hablando: mira el tuyo con `!nivel` y el ranking con `!top`.
+🎭 Elige tus especialidades y avisos con los botones de abajo."""
 color = "#2ECC71"
 
 [[mensajes]]
 key = "msg_especialidades"
 canal = "info_estudio"
-titulo = "🎭 Tus especialidades"
-descripcion = "Pulsa un botón para darte o quitarte una especialidad."
+titulo = "🎭 Especialidades y avisos"
+descripcion = """Pulsa un botón para darte o quitarte un rol.
+
+**Scripter, Builder y UI** son tus especialidades.
+**🔔 Novedades** te menciona cuando publicamos novedades del estudio."""
 color = "#9B59B6"
-botones_roles = ["scripter", "builder", "ui"]
+botones_roles = ["scripter", "builder", "ui", "novedades"]
+
+[[mensajes]]
+key = "msg_presentaciones"
+canal = "presentaciones"
+titulo = "🙋 Preséntate"
+descripcion = """Copia la plantilla, rellénala y publícala aquí:
+
+**Nombre o alias:**
+**Especialidad:** (Scripter, Builder, UI…)
+**En qué trabajas:**
+**GitHub o portfolio:**"""
+color = "#F1C40F"
 
 # Proyectos activos: descomentar cuando haya proyectos que mostrar. No se publica texto de relleno.
 # [[mensajes]]

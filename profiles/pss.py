@@ -28,7 +28,8 @@ from discord.ext import commands
 
 from profiles import pss_db
 from profiles.pss_config import (
-    ConfigInvalida, PERMISOS_ELEVADOS, REGEX_PLACEHOLDER, cargar, comandos_de_ayuda_inexistentes,
+    Bienvenida, ConfigInvalida, PERMISOS_ELEVADOS, REGEX_LLAVES, REGEX_PLACEHOLDER, cargar,
+    comandos_de_ayuda_inexistentes,
 )
 from profiles.pss_exec import (
     construir_snapshot, ejecutar, reunir_estado_mensajes,
@@ -41,13 +42,18 @@ COOLDOWN_SEGUNDOS = 30
 LIMITE_EMBED = 3900
 MSG_YA_EN_CURSO = "⚠️ Ya hay una aplicación en curso en este servidor."
 MSG_NO_DISPONIBLE = "Este comando no está disponible en este servidor."
+# Bienvenida si el TOML no tiene [bienvenida].
+BIENVENIDA_POR_DEFECTO = Bienvenida(
+    titulo="👋 ¡Bienvenido/a a {servidor}!",
+    descripcion="¡Hola {usuario}! 🎉\nEres el miembro **#{numero}** 🎊",
+)
 
 
 class PssNoAplica(commands.CheckFailure):
     """El comando se uso fuera del servidor del perfil: se ignora sin responder."""
 
 
-class PssComandoBloqueado(commands.CheckFailure):
+class PssComandoBloqueado(commands.CommandError):
     """Comando de EITO bloqueado en el servidor del perfil ([comandos] bloquear)."""
 
 
@@ -217,6 +223,21 @@ class PerfilPSS(commands.Cog):
         Ninguna por ahora: el TOML aun no las define (EITO usa las suyas, no estas)."""
         return ()
 
+    def embed_bienvenida(self, member):
+        """Embed de bienvenida a partir de [bienvenida] del TOML (o del texto por defecto)."""
+        plantilla = self.config.bienvenida or BIENVENIDA_POR_DEFECTO
+        guild = member.guild
+        variables = {"usuario": member.mention, "servidor": guild.name, "numero": str(guild.member_count)}
+
+        def texto(bruto):
+            bruto = REGEX_LLAVES.sub(lambda m: variables.get(m.group(1), m.group(0)), bruto)
+            return self._texto_ayuda(bruto)
+
+        embed = discord.Embed(title=texto(plantilla.titulo), description=texto(plantilla.descripcion),
+                              colour=discord.Colour(plantilla.color))
+        embed.set_thumbnail(url=member.display_avatar.url)
+        return embed
+
     async def al_entrar(self, member):
         """Sustituye al on_member_join de EITO en el servidor del perfil."""
         if member.bot:
@@ -241,17 +262,7 @@ class PerfilPSS(commands.Cog):
         key_canal = self.config.eventos.bienvenida
         canal = guild.get_channel(self.ids.get(key_canal, 0)) if key_canal else None
         if isinstance(canal, discord.TextChannel):
-            lineas = [f"¡Hola {member.mention}! 🎉"]
-            for key, texto in (("reglas", "📜 Lee las reglas y la guía en"),):
-                destino = guild.get_channel(self.ids.get(key, 0))
-                if destino is not None:
-                    lineas.append(f"{texto} {destino.mention}")
-            lineas.append(f"Eres el miembro **#{guild.member_count}** 🎊")
-            embed = discord.Embed(
-                title=f"👋 ¡Bienvenido/a a {guild.name}!", description="\n".join(lineas),
-                colour=discord.Colour(0x2ECC71),
-            )
-            embed.set_thumbnail(url=member.display_avatar.url)
+            embed = self.embed_bienvenida(member)
             try:
                 await canal.send(embed=embed)
             except discord.HTTPException as e:

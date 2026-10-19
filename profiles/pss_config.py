@@ -163,6 +163,15 @@ class Ayuda:
 
 
 @dataclass(frozen=True)
+class Bienvenida:
+    """[bienvenida]: embed que se manda al canal de bienvenida cuando entra alguien.
+    Admite {usuario}, {servidor}, {numero} (miembros del servidor), {canal:key} y {rol:key}."""
+    titulo: str
+    descripcion: str
+    color: int = 0x2ECC71
+
+
+@dataclass(frozen=True)
 class Recursos:
     """[recursos]: clave de un sistema de EITO -> key(s) de [[roles]] / [[canales]] / [[categorias]]."""
     roles: dict = field(default_factory=dict)        # clave -> tuple de keys de rol
@@ -195,6 +204,7 @@ class Config:
     _indice: dict = field(default_factory=dict, repr=False, compare=False)
     ayuda: Ayuda | None = None
     recursos: Recursos = field(default_factory=Recursos)
+    bienvenida: Bienvenida | None = None
 
     def rol(self, key):
         return self._indice.get(("rol", key))
@@ -412,6 +422,32 @@ def _parsear_ayuda(v, bruto, bloqueados, claves_canales, claves_roles):
     return Ayuda(titulo, descripcion, pie, tuple(secciones))
 
 
+VARIABLES_BIENVENIDA = ("usuario", "servidor", "numero")
+REGEX_LLAVES = re.compile(r"\{([^{}]*)\}")
+
+
+def _parsear_bienvenida(v, bruto, claves_canales, claves_roles):
+    if bruto is None:
+        return None
+    b = v.tabla(bruto, "bienvenida")
+    v.desconocidas(b, {"titulo", "descripcion", "color"}, "bienvenida")
+    titulo = v.texto(b, "titulo", "bienvenida", requerido=True, maximo=MAX_EMBED_TITULO)
+    descripcion = v.texto(b, "descripcion", "bienvenida", requerido=True, maximo=MAX_EMBED_DESCRIPCION)
+    for campo, texto in (("titulo", titulo), ("descripcion", descripcion)):
+        for contenido in REGEX_LLAVES.findall(texto):
+            ruta = f"bienvenida.{campo}"
+            tipo, _, key = contenido.partition(":")
+            if contenido in VARIABLES_BIENVENIDA:
+                continue
+            if tipo == "canal" and key in claves_canales or tipo == "rol" and key in claves_roles:
+                continue
+            if tipo in ("canal", "rol") and key:
+                v.error(ruta, f"{{{contenido}}} no existe en [[{'canales' if tipo == 'canal' else 'roles'}]]")
+            else:
+                v.error(ruta, f"{{{contenido}}} no es una variable valida (usa {', '.join('{' + n + '}' for n in VARIABLES_BIENVENIDA)}, {{canal:key}} o {{rol:key}})")
+    return Bienvenida(titulo, descripcion, v.color(b, "color", "bienvenida", defecto=0x2ECC71))
+
+
 def _parsear_recursos(v, bruto, roles, categorias, canales):
     """[recursos.roles|canales|categorias]: cada clave debe ser una que el bot conozca y apuntar a
     una key existente y del tipo correcto (rol, canal de texto o anuncios, categoria)."""
@@ -501,7 +537,7 @@ def parsear(datos):
     """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
     v = _Validador()
     raiz = v.tabla(datos, "(raiz)")
-    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
 
     # --- [perfil] ---
     p = v.tabla(raiz.get("perfil", {}), "perfil")
@@ -659,6 +695,9 @@ def parsear(datos):
     ayuda = _parsear_ayuda(v, raiz.get("ayuda"), bloqueados,
                            {c.key for c in canales}, {r.key for r in roles})
 
+    # --- [bienvenida] ---
+    bienvenida = _parsear_bienvenida(v, raiz.get("bienvenida"), {c.key for c in canales}, {r.key for r in roles})
+
     # --- [recursos] ---
     recursos = _parsear_recursos(v, raiz.get("recursos"), roles, categorias, canales)
 
@@ -746,6 +785,7 @@ def parsear(datos):
         eventos=eventos, comandos_bloqueados=bloqueados,
         roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
         mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda, recursos=recursos,
+        bienvenida=bienvenida,
     )
 
 

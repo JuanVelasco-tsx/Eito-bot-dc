@@ -244,7 +244,7 @@ async def test_si_el_perfil_falla_el_bot_arranca_igual(mod, arranque, monkeypatc
 def test_maneja_y_permite(cog):
     pss_guild, otro = FGuild(G_PSS), FGuild(OTRO)
     assert cog.maneja(pss_guild) and not cog.maneja(otro) and not cog.maneja(None)
-    assert cog.permite(pss_guild, "xp") is False and cog.permite(pss_guild, "voz") is False
+    assert cog.permite(pss_guild, "xp") is True and cog.permite(pss_guild, "voz") is False   # XP: Fase 1
     assert cog.permite(pss_guild, "anti_multicuentas") is True       # PSS es publico: el filtro se aplica
     assert cog.permite(otro, "xp") is True and cog.permite(otro, "anti_multicuentas") is True
     assert cog.permite(pss_guild, "lo_que_sea") is True
@@ -253,14 +253,18 @@ def test_maneja_y_permite(cog):
 async def test_al_entrar_con_anti_multicuentas_apagado_da_el_rol_y_bienvenida(cog, config):
     cog.config = con_eventos(config, anti_multicuentas=False)
     guild = FGuild()
-    rol, general = types.SimpleNamespace(id=70, name="Miembro"), FTexto(80)
-    guild.roles[70], guild.canales[80] = rol, general
-    cog.ids = {"miembro": 70, "general": 80}
+    rol, bienvenida = types.SimpleNamespace(id=70, name="Miembro"), FTexto(80)
+    guild.roles[70], guild.canales[80] = rol, bienvenida
+    cog.ids = {"miembro": 70, "bienvenida": 80, "reglas": 81, "info_estudio": 82, "presentaciones": 83}
     cog.bot.get_cog = lambda n: (_ for _ in ()).throw(AssertionError("no debe consultar el filtro"))
     miembro = FMiembro(guild)
     await cog.al_entrar(miembro)
     assert miembro.agregados == [rol]
-    assert len(general.enviados) == 1 and "<@2>" in general.enviados[0][1]["embed"].description
+    embed = bienvenida.enviados[0][1]["embed"]
+    assert len(bienvenida.enviados) == 1 and "<@2>" in embed.description
+    # enlaza a las reglas y a #info-estudio (la guia ya no esta en reglas) y a presentaciones
+    assert "<#81>" in embed.description and "<#82>" in embed.description and "<#83>" in embed.description
+    assert "**#6**" in embed.description and embed.title == "👋 ¡Bienvenido/a a PSS!"
 
 
 async def test_al_entrar_con_anti_multicuentas_activado_respeta_su_decision(cog, config):
@@ -284,12 +288,42 @@ async def test_al_entrar_con_anti_multicuentas_activado_respeta_su_decision(cog,
     assert expulsado.agregados == [] and len(valido.agregados) == 1
 
 
+async def test_la_bienvenida_sale_del_toml_y_sin_toml_usa_el_texto_por_defecto(cog, config):
+    guild = FGuild()
+    bienvenida = guild.canales[80] = FTexto(80)
+    cog.ids = {"bienvenida": 80}                  # sin IDs de reglas ni info-estudio: salen sus nombres
+    cog.config = con_eventos(config, anti_multicuentas=False, rol_al_entrar="")
+    cog.bot.get_cog = lambda n: None
+    await cog.al_entrar(FMiembro(guild))
+    descripcion = bienvenida.enviados[0][1]["embed"].description
+    assert "#📜・reglas" in descripcion and "#ℹ️・info-estudio" in descripcion and "#🙋・presentaciones" in descripcion
+    # sin [bienvenida] en el TOML: el texto por defecto, con las mismas variables
+    bienvenida.enviados.clear()
+    cog.config = replace(cog.config, bienvenida=None)
+    await cog.al_entrar(FMiembro(guild))
+    embed = bienvenida.enviados[0][1]["embed"]
+    assert embed.title == "👋 ¡Bienvenido/a a PSS!" and embed.description == "¡Hola <@2>! 🎉\nEres el miembro **#6** 🎊"
+    # sin canal de bienvenida mapeado no se envia nada
+    bienvenida.enviados.clear()
+    cog.ids = {}
+    await cog.al_entrar(FMiembro(guild))
+    assert bienvenida.enviados == []
+
+
+def test_el_panel_de_especialidades_incluye_el_boton_de_novedades(cog):
+    keys = [r.key for r in cog.config.roles_autoasignables()]
+    assert keys == ["scripter", "builder", "ui", "novedades"]
+    vista = cog.fabrica_vista(keys)
+    assert [b.custom_id for b in vista.children] == [f"pss::rol::{k}" for k in keys]
+    assert [b.label for b in vista.children][-1] == "🔔 Novedades"
+
+
 async def test_al_entrar_en_pss_expulsa_cuentas_nuevas_sin_dar_rol_ni_bienvenida(cog):
     """Con el pss.toml real: el filtro de EITO decide primero y, si expulsa, no hay rol ni bienvenida."""
     guild = FGuild()
     general = FTexto(80)
     guild.roles[70], guild.canales[80] = types.SimpleNamespace(id=70, name="Miembro"), general
-    cog.ids = {"miembro": 70, "general": 80}
+    cog.ids = {"miembro": 70, "bienvenida": 80}
 
     class Anti:
         async def filtrar_miembro(self, m):
@@ -336,12 +370,13 @@ def ctx_de(guild, comando):
 
 def test_bloqueo_de_comandos_de_eito_solo_en_pss(cog):
     for nombre in ("setup", "info", "paneltickets", "panelroles", "reglas", "crearvcs",
-                   "steam", "jugar", "nivel", "top", "perfil"):
-        with pytest.raises(commands.CheckFailure) as e:
+                   "steam", "jugar", "perfil", "fundadores", "importarniveles", "darnivel"):
+        with pytest.raises(commands.CommandError) as e:
             cog._bloquear_comando(ctx_de(FGuild(G_PSS), nombre))
         assert "no está disponible" in str(e.value)
         assert cog._bloquear_comando(ctx_de(FGuild(OTRO), nombre)) is True    # en EITO siguen igual
-    for neutral in ("ping", "kick", "ban", "encuesta", "sugerencia", "ayuda", "warn", "exportarserver"):
+    for neutral in ("ping", "kick", "ban", "encuesta", "sugerencia", "ayuda", "warn", "exportarserver",
+                    "nivel", "top", "permitir", "anuncio", "setxp", "resetxp"):
         assert cog._bloquear_comando(ctx_de(FGuild(G_PSS), neutral)) is True
     assert cog._bloquear_comando(types.SimpleNamespace(guild=None, command=None)) is True
 
@@ -491,9 +526,9 @@ async def _comando_vacio(ctx):
 
 async def test_la_extension_carga_en_un_bot_real_y_se_descarga_limpia(sin_bd_del_perfil, capsys):
     bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
-    for nombre in ("ping", "avatar", "serverinfo", "miembros", "encuesta", "sugerencia", "borrar", "kick",
-                   "ban", "mute", "unmute", "warn", "warns"):     # los de [ayuda]: deben existir en el bot
-        bot.command(name=nombre)(_comando_vacio)
+    for seccion in cargar(RUTA).ayuda.secciones:
+        for entrada in seccion.entradas:        # los de [ayuda]: deben existir en el bot
+            bot.command(name=entrada.comando)(_comando_vacio)
     checks_antes = len(bot._checks)
     await bot.load_extension("profiles.pss")
     # load_extension ejecuta el modulo otra vez, asi que la clase no es la importada arriba

@@ -314,9 +314,10 @@ def test_rol_de_contador_en_pss_usa_el_rol_mapeado_y_respeta_la_jerarquia(mod, p
 
 
 async def test_xp_en_pss_a_nivel_10_sin_recompensas_mapeadas_no_anuncia_ni_asigna_nada(mod, perfil, monkeypatch):
-    """C: con xp = true, cruzar el nivel 10 en PSS solo da el aviso de nivel; sin recompensa, rol ni canal."""
-    con_recursos(perfil, canales={"niveles": "niv"}, ids={"niv": 31})
-    perfil.config = replace(perfil.config, eventos=replace(perfil.config.eventos, xp=True))
+    """C, con el pss.toml DEFINITIVO: xp = true, niveles mapeado y ninguna recompensa. Cruzar el nivel 10
+    solo da el aviso de nivel en 📈・niveles; ni rol ni canal ni anuncio de «desbloqueó»."""
+    assert perfil.config.eventos.xp is True and perfil.config.recursos.canales["niveles"] == "niveles"
+    perfil.ids = {"niveles": 31}                                       # lo unico que añade el aplicar
     guild = guild_pss_con_todo_de_eito(mod)
     niveles = guild.canales[31] = FTexto(31, "📈・niveles")
     guild.roles.append(FRol(900, "🔓 Nivel 10"))                     # existen, con los nombres de EITO
@@ -414,9 +415,10 @@ async def test_anuncio_en_pss_publica_en_el_canal_mapeado(mod, fakes, perfil):
 
 
 # --- El perfil: metodos del resolvedor y el TOML real -------------------------------------------------------------
-def test_el_toml_real_solo_mapea_anuncios_por_ahora():
+def test_el_toml_real_mapea_anuncios_y_niveles_por_ahora():
     recursos = cargar(RUTA).recursos
-    assert recursos.canales == {"anuncios": "anuncios"} and recursos.roles == {} and recursos.categorias == {}
+    assert recursos.canales == {"anuncios": "anuncios", "niveles": "niveles"}
+    assert recursos.roles == {} and recursos.categorias == {}
 
 
 def test_recompensas_del_perfil_son_ninguna_por_ahora(perfil):

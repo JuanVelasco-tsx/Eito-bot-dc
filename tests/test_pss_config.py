@@ -49,9 +49,10 @@ def test_el_toml_real_es_valido_y_refleja_lo_acordado():
     c = cargar(RUTA_REAL)
     assert c.guild_id == 1420403964746268684 and c.owner_id == 668148837579227137
     assert c.gestores == ()
-    # PSS es publico: XP y voz apagadas, pero el filtro de cuentas nuevas SI se aplica
-    assert (c.eventos.xp, c.eventos.voz, c.eventos.anti_multicuentas) == (False, False, True)
+    # PSS es publico: XP encendida (Fase 1), voz apagada y el filtro de cuentas nuevas SI se aplica
+    assert (c.eventos.xp, c.eventos.voz, c.eventos.anti_multicuentas) == (True, False, True)
     assert c.eventos.rol_al_entrar == "miembro" and c.eventos.canal_logs == "registros"
+    assert c.eventos.bienvenida == "bienvenida" and c.canal("bienvenida").categoria == "cat_estudio"
     assert c.canal("registros").categoria == "cat_staff"
     # Propietario: solo color y hoist, sin permisos (ni administrator)
     assert c.rol("propietario").permisos == () and c.rol("propietario").hoist
@@ -112,12 +113,13 @@ def test_canales_existentes_renombrados_con_adoptar_y_nombre_actual():
 def test_canales_segun_la_estructura_objetivo():
     c = cargar(RUTA_REAL)
     en = lambda cat: [x.nombre for x in sorted((x for x in c.canales if x.categoria == cat), key=lambda x: x.orden)]
-    assert en("cat_estudio") == ["📜・reglas", "📣・anuncios", "ℹ️・info-estudio"]
-    assert en("cat_comunidad") == ["💬・general", "📸・showcase", "💡・sugerencias", "🤖・comandos", "🎲・no-relacionado"]
+    assert en("cat_estudio") == ["📜・reglas", "👋・bienvenida", "📣・anuncios", "ℹ️・info-estudio"]
+    assert en("cat_comunidad") == ["💬・general", "🙋・presentaciones", "📸・showcase", "💡・sugerencias", "🤖・comandos",
+                                  "📈・niveles", "🎲・no-relacionado"]
     assert en("cat_desarrollo") == ["🟥・scripting-luau", "❓・ayuda"]
     assert en("cat_voz") == ["🔊 General"]
     assert en("cat_equipo") == ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"]
-    assert en("cat_staff") == ["🛡️・registros"]
+    assert en("cat_staff") == ["🛡️・registros", "🧪・pruebas-bot"]
     # tipos: anuncios = news (se convierte el existente), ayuda = foro nuevo que reemplaza al canal de texto
     assert c.canal("anuncios").tipo == "news" and c.canal("anuncios").mover
     ayuda = c.canal("ayuda")
@@ -134,9 +136,9 @@ def test_canales_segun_la_estructura_objetivo():
     assert c.canal("frontend") is None and c.canal("backend") is None
     assert not any("frontend" in x.nombre or "backend" in x.nombre for x in c.canales)
     assert c.canal("voz_general").tipo == "voice" and c.canal("voz_general").overrides == ()
-    # hasta 16 canales de texto (texto + anuncios + foros), mas la voz
+    # hasta 24 canales de texto (texto + anuncios + foros), mas la voz
     no_voz = [x for x in c.canales if x.tipo != "voice"]
-    assert len(no_voz) == 13 <= 16 and len([x for x in c.canales if x.tipo == "voice"]) == 2
+    assert len(no_voz) == 17 <= 24 and len([x for x in c.canales if x.tipo == "voice"]) == 2
 
 
 def test_sugerencias_usa_el_nombre_exacto_que_busca_el_comando_de_eito(mod):
@@ -154,7 +156,7 @@ def test_las_reglas_son_de_comunidad_publica():
     # #reglas solo tiene las reglas; info, guia y botones van en #info-estudio
     assert [m.key for m in c.mensajes if m.canal == "reglas"] == ["msg_reglas"]
     assert {m.key for m in c.mensajes if m.canal == "info_estudio"} == {"msg_info_estudio", "msg_guia", "msg_especialidades"}
-    assert c.mensaje("msg_especialidades").botones_roles == ("scripter", "builder", "ui")
+    assert c.mensaje("msg_especialidades").botones_roles == ("scripter", "builder", "ui", "novedades")
     assert "{canal:ayuda}" in reglas
     assert "msg_proyectos_activos" not in {m.key for m in c.mensajes}
     assert "setup" in c.comandos_bloqueados and "pss" not in c.comandos_bloqueados
@@ -287,6 +289,60 @@ def test_recursos_acepta_un_canal_de_anuncios_y_listas_en_las_claves_que_las_adm
     d["canales"].append({"key": "anu", "nombre": "anuncios", "categoria": "cat_a", "tipo": "news"})
     r = parsear(d).recursos
     assert r.canales == {"anuncios": "anu"} and r.roles["honor"] == ("miembro",)
+
+
+# --- Fase 1: roles nuevos, bienvenida, comandos y XP ---------------------------------------------------------
+def test_fase_1_roles_nuevos_helper_y_novedades():
+    c = cargar(RUTA_REAL)
+    helper, novedades = c.rol("helper"), c.rol("novedades")
+    assert helper.nombre == "Helper" and helper.permisos == () and not helper.autoasignable and not helper.mentionable
+    assert novedades.nombre == "🔔 Novedades" and novedades.mentionable and novedades.autoasignable
+    assert novedades.permisos == () and not novedades.hoist
+    assert not any("administrator" in r.permisos for r in c.roles)
+
+
+def test_fase_1_xp_bienvenida_y_comandos():
+    c = cargar(RUTA_REAL)
+    assert c.eventos.xp is True and c.eventos.voz is False
+    assert c.recursos.canales["niveles"] == "niveles"
+    niveles = c.canal("niveles")
+    assert niveles.nombre == "📈・niveles" and niveles.categoria == "cat_comunidad"
+    # solo lectura para @everyone (el bot escribe gracias a su override automatico)
+    todos = next(o for o in niveles.overrides if o.objetivo == "@everyone")
+    assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
+    assert c.canal("presentaciones").categoria == "cat_comunidad" and c.canal("pruebas_bot").categoria == "cat_staff"
+    assert c.canal("bienvenida").categoria == "cat_estudio" and c.canal("bienvenida").overrides == ()
+    assert c.mensaje("msg_presentaciones").canal == "presentaciones"
+    for campo in ("Nombre", "Especialidad", "En qué trabajas", "GitHub o portfolio"):
+        assert campo in c.mensaje("msg_presentaciones").descripcion
+    # bloqueados: sin nivel/top, con fundadores/importarniveles/darnivel
+    assert c.comandos_bloqueados == {
+        "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco", "panelroles", "reglas", "info",
+        "presentaciones", "paneltickets", "steam", "jugar", "perfil", "fundadores", "importarniveles", "darnivel"}
+    assert "nivel" not in c.comandos_bloqueados and "top" not in c.comandos_bloqueados
+
+
+def test_la_bienvenida_enlaza_a_las_reglas_y_a_info_estudio():
+    b = cargar(RUTA_REAL).bienvenida
+    assert "{canal:reglas}" in b.descripcion and "{canal:info_estudio}" in b.descripcion
+    assert "{usuario}" in b.descripcion and "{numero}" in b.descripcion and "{servidor}" in b.titulo
+
+
+def test_bienvenida_validacion():
+    d = datos()
+    d["bienvenida"] = {"titulo": "Hola {servidor}", "descripcion": "{usuario} eres el #{numero}. Ve a {canal:general}"}
+    b = parsear(d).bienvenida
+    assert b.titulo == "Hola {servidor}" and b.color == 0x2ECC71
+    assert parsear(datos()).bienvenida is None                                 # opcional
+    d["bienvenida"] = {"titulo": "x", "descripcion": "{nombre} {canal:fantasma} {rol:nadie}", "color": "verde"}
+    texto = " | ".join(errores_de(d))
+    assert "{nombre} no es una variable valida" in texto
+    assert "{canal:fantasma} no existe en [[canales]]" in texto and "{rol:nadie} no existe en [[roles]]" in texto
+    assert "bienvenida.color" in texto
+    d["bienvenida"] = {"titulo": "x"}
+    assert "bienvenida.descripcion: es obligatorio" in " | ".join(errores_de(d))
+    d["bienvenida"] = {"titulo": "x", "descripcion": "y", "otra": 1}
+    assert "clave desconocida" in " | ".join(errores_de(d))
 
 
 def test_claves_duplicadas_entre_tipos():
