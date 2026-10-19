@@ -38,6 +38,49 @@ canal_logs = "registros"           # key del canal de logs de moderacion (!kick,
 bloquear = [
   "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco",
   "panelroles", "reglas", "info", "presentaciones", "paneltickets",
+  # Del bot de la comunidad de EITO (niveles, perfiles de Steam, partidas): no aplican en PSS.
+  "steam", "jugar", "nivel", "top", "perfil",
+]
+# Quien los use aqui ve "Este comando no está disponible en este servidor."
+
+# =====================================================================
+#  AYUDA de este servidor (!ayuda). Cada comando debe existir en el bot y NO estar en
+#  `bloquear`. Solo se muestra lo que quien pregunta puede ejecutar (can_run), como en EITO;
+#  `solo_moderadores = true` oculta ademas la linea a quien no puede expulsar ni aislar
+#  (para comandos como !warns, que cualquiera puede usar para ver los suyos).
+#  El texto admite {canal:key} y {rol:key}.
+# =====================================================================
+[ayuda]
+titulo = "📖 Comandos de Phantom Shadows Studios"
+descripcion = "Todos los comandos usan el prefijo `!`"
+pie = "Los comandos de moderación solo los ven los moderadores."
+
+[[ayuda.secciones]]
+titulo = "🎮 Comunidad"
+comandos = [
+  { comando = "ping", texto = "comprueba que el bot responde" },
+  { comando = "avatar", uso = "!avatar [@usuario]", texto = "muestra un avatar en grande" },
+  { comando = "serverinfo", texto = "info del servidor" },
+  { comando = "miembros", texto = "cuántos miembros hay" },
+]
+
+[[ayuda.secciones]]
+titulo = "📊 Utilidad"
+comandos = [
+  { comando = "encuesta", uso = "!encuesta <pregunta>", texto = "crea una encuesta 👍👎" },
+  { comando = "sugerencia", uso = "!sugerencia <texto>", texto = "envía una sugerencia con votación; se publica en {canal:sugerencias}" },
+]
+
+[[ayuda.secciones]]
+titulo = "🛡️ Moderación"
+comandos = [
+  { comando = "borrar", uso = "!borrar <n>", texto = "borra los últimos N mensajes (1–100)" },
+  { comando = "kick", uso = "!kick @usuario [razón]", texto = "expulsa a un miembro" },
+  { comando = "ban", uso = "!ban @usuario [razón]", texto = "banea a un miembro" },
+  { comando = "mute", uso = "!mute @usuario <duración> [razón]", texto = "silencia (ej. 10m, 2h)" },
+  { comando = "unmute", uso = "!unmute @usuario", texto = "quita el silencio" },
+  { comando = "warn", uso = "!warn @usuario [razón]", texto = "avisa a un miembro" },
+  { comando = "warns", uso = "!warns [@usuario]", texto = "muestra los avisos", solo_moderadores = true },
 ]
 
 # =====================================================================

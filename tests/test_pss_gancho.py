@@ -335,12 +335,13 @@ def ctx_de(guild, comando):
 
 
 def test_bloqueo_de_comandos_de_eito_solo_en_pss(cog):
-    for nombre in ("setup", "info", "paneltickets", "panelroles", "reglas", "crearvcs"):
+    for nombre in ("setup", "info", "paneltickets", "panelroles", "reglas", "crearvcs",
+                   "steam", "jugar", "nivel", "top", "perfil"):
         with pytest.raises(commands.CheckFailure) as e:
             cog._bloquear_comando(ctx_de(FGuild(G_PSS), nombre))
         assert "no está disponible" in str(e.value)
         assert cog._bloquear_comando(ctx_de(FGuild(OTRO), nombre)) is True    # en EITO siguen igual
-    for neutral in ("ping", "kick", "ban", "encuesta", "sugerencia", "nivel", "top", "ayuda", "warn", "exportarserver"):
+    for neutral in ("ping", "kick", "ban", "encuesta", "sugerencia", "ayuda", "warn", "exportarserver"):
         assert cog._bloquear_comando(ctx_de(FGuild(G_PSS), neutral)) is True
     assert cog._bloquear_comando(types.SimpleNamespace(guild=None, command=None)) is True
 
@@ -484,14 +485,21 @@ def sin_bd_del_perfil(monkeypatch):
     monkeypatch.setattr(pss_db, "cargar_mapa", mapa)
 
 
+async def _comando_vacio(ctx):
+    return None
+
+
 async def test_la_extension_carga_en_un_bot_real_y_se_descarga_limpia(sin_bd_del_perfil, capsys):
     bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+    for nombre in ("ping", "avatar", "serverinfo", "miembros", "encuesta", "sugerencia", "borrar", "kick",
+                   "ban", "mute", "unmute", "warn", "warns"):     # los de [ayuda]: deben existir en el bot
+        bot.command(name=nombre)(_comando_vacio)
     checks_antes = len(bot._checks)
     await bot.load_extension("profiles.pss")
     # load_extension ejecuta el modulo otra vez, asi que la clase no es la importada arriba
     assert type(bot.get_cog("PerfilPSS")).__name__ == "PerfilPSS"
     assert {c.qualified_name for c in bot.walk_commands()} >= {
-        "pss", "pss plan", "pss aplicar", "pss recargar", "pss estado", "pss olvidar"}
+        "pss", "pss plan", "pss aplicar", "pss recargar", "pss estado", "pss olvidar", "pss ayuda"}
     assert len(bot._checks) == checks_antes + 1          # el check que bloquea comandos de EITO
     assert "Perfil PSS cargado" in capsys.readouterr().out
     await bot.unload_extension("profiles.pss")

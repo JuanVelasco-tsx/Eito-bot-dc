@@ -4121,6 +4121,10 @@ async def comando_visible(ctx, nombre, condicion=None):
 # =====================================================================
 @bot.command(name="ayuda")
 async def ayuda(ctx):
+    perfil = bot.get_cog("PerfilPSS")
+    if perfil is not None and perfil.maneja(ctx.guild):
+        await perfil.enviar_ayuda(ctx)    # ayuda propia del servidor con perfil (PSS)
+        return
     embed = discord.Embed(
         title="📖 Comandos de EITO",
         description="Todos los comandos usan el prefijo `!`",

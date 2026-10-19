@@ -10,6 +10,7 @@ otros loops). El bot principal habla con el cog solo a traves de `bot.get_cog("P
     permite(guild, evento)   ¿se permite "xp" / "voz" / "anti_multicuentas" aqui?
     canal_logs(guild)        canal de logs de moderacion del perfil (o None)
     al_entrar(member)        sustituye al on_member_join de EITO en este servidor
+    enviar_ayuda(ctx)        la ayuda de este servidor (sustituye a !ayuda de EITO)
 
 Todo lo demas (el check que bloquea comandos de EITO y los comandos !pss) solo actua cuando
 guild.id coincide con `guild_id` del TOML.
@@ -24,7 +25,9 @@ import discord
 from discord.ext import commands
 
 from profiles import pss_db
-from profiles.pss_config import ConfigInvalida, PERMISOS_ELEVADOS, cargar
+from profiles.pss_config import (
+    ConfigInvalida, PERMISOS_ELEVADOS, REGEX_PLACEHOLDER, cargar, comandos_de_ayuda_inexistentes,
+)
 from profiles.pss_exec import (
     construir_snapshot, ejecutar, reunir_estado_mensajes,
 )
@@ -35,14 +38,30 @@ TIMEOUT_CONFIRMACION = 60
 COOLDOWN_SEGUNDOS = 30
 LIMITE_EMBED = 3900
 MSG_YA_EN_CURSO = "⚠️ Ya hay una aplicación en curso en este servidor."
+MSG_NO_DISPONIBLE = "Este comando no está disponible en este servidor."
 
 
 class PssNoAplica(commands.CheckFailure):
     """El comando se uso fuera del servidor del perfil: se ignora sin responder."""
 
 
+class PssComandoBloqueado(commands.CheckFailure):
+    """Comando de EITO bloqueado en el servidor del perfil ([comandos] bloquear)."""
+
+
 class PssSinPermiso(commands.CheckFailure):
     """Quien lo usa no es el dueño ni un gestor."""
+
+
+# Una linea por subcomando de !pss (uso, que hace) para `!pss ayuda`.
+AYUDA_PSS = (
+    ("!pss plan", "muestra qué haría el perfil y qué difiere del servidor; no toca nada"),
+    ("!pss aplicar", "muestra el resumen y, si lo confirmas con el botón, crea o actualiza roles, canales y mensajes"),
+    ("!pss recargar", "vuelve a leer `pss.toml` sin reiniciar el bot (no cambia `guild_id`)"),
+    ("!pss estado", "lista lo que el perfil tiene guardado (key → ID) y si sigue existiendo"),
+    ("!pss olvidar <key>", "borra esa fila del mapa del perfil; no toca nada en Discord"),
+    ("!pss ayuda", "muestra esta lista"),
+)
 
 
 def trocear(lineas, limite=LIMITE_EMBED):
@@ -217,10 +236,66 @@ class PerfilPSS(commands.Cog):
         if ctx.guild is None or ctx.guild.id != self.config.guild_id or ctx.command is None:
             return True
         if ctx.command.qualified_name in self.config.comandos_bloqueados:
-            raise commands.CheckFailure(
-                f"Este comando de EITO no está disponible en {self.config.nombre}."
-            )
+            raise PssComandoBloqueado(MSG_NO_DISPONIBLE)
         return True
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        """Un comando bloqueado SIN manejador .error propio (p. ej. !top) no contestaba nada:
+        aqui se avisa. Los que tienen manejador ya responden con str(error), que es este texto."""
+        if not isinstance(error, PssComandoBloqueado):
+            return
+        comando = ctx.command
+        if comando is not None and (comando.has_error_handler()
+                                    or (ctx.cog is not None and ctx.cog.has_error_handler())):
+            return
+        try:
+            await ctx.send(f"❌ {error}")
+        except discord.HTTPException:
+            pass
+
+    # ---- ayuda del servidor ----
+    def _texto_ayuda(self, texto):
+        """Resuelve {canal:key} / {rol:key} a menciones (o al nombre, si aun no existe)."""
+        def una(m):
+            tipo, key = m.group(1), m.group(2)
+            ident = self.ids.get(key)
+            if ident:
+                return f"<#{ident}>" if tipo == "canal" else f"<@&{ident}>"
+            el = self.config.canal(key) if tipo == "canal" else self.config.rol(key)
+            return f"#{el.nombre}" if tipo == "canal" else f"@{el.nombre}"
+        return REGEX_PLACEHOLDER.sub(una, texto)
+
+    async def _entrada_visible(self, ctx, entrada):
+        """Como la ayuda de EITO: solo se muestra lo que quien pregunta puede ejecutar (can_run)."""
+        comando = self.bot.get_command(entrada.comando)
+        if comando is None:
+            return False
+        if entrada.solo_moderadores:
+            permisos = getattr(ctx.author, "guild_permissions", None)
+            if permisos is None or not (permisos.kick_members or permisos.moderate_members):
+                return False
+        try:
+            return await comando.can_run(ctx)
+        except commands.CommandError:
+            return False
+
+    async def enviar_ayuda(self, ctx):
+        ayuda = self.config.ayuda
+        if ayuda is None:
+            await ctx.send("ℹ️ Este servidor no tiene ayuda configurada.")
+            return
+        embed = discord.Embed(title=self._texto_ayuda(ayuda.titulo),
+                              description=self._texto_ayuda(ayuda.descripcion) or None,
+                              colour=discord.Colour(0x5865F2))
+        for seccion in ayuda.secciones:
+            lineas = [self._texto_ayuda(e.linea()) for e in seccion.entradas
+                      if await self._entrada_visible(ctx, e)]
+            if lineas:
+                embed.add_field(name=self._texto_ayuda(seccion.titulo), value="\n".join(lineas), inline=False)
+        if ayuda.pie:
+            embed.set_footer(text=self._texto_ayuda(ayuda.pie))
+        await ctx.send(embed=embed)
 
     # ---- botones de especialidad ----
     async def alternar_especialidad(self, interaction, key):
@@ -308,8 +383,17 @@ class PerfilPSS(commands.Cog):
     async def pss(self, ctx):
         await ctx.send(
             "**Perfil PSS** — `!pss plan` (ver qué haría, sin tocar nada) · `!pss aplicar` · "
-            "`!pss recargar` · `!pss estado` · `!pss olvidar <key>`"
+            "`!pss recargar` · `!pss estado` · `!pss olvidar <key>` · `!pss ayuda`"
         )
+
+    @pss.command(name="ayuda")
+    async def ayuda(self, ctx):
+        """Lista de comandos de !pss (solo el dueño y los gestores pasan el cog_check)."""
+        lineas = [f"`{uso}` — {texto}" for uso, texto in AYUDA_PSS]
+        await ctx.send(embed=discord.Embed(
+            title="🛠️ Comandos de !pss",
+            description="Solo para el dueño del servidor y los gestores del perfil.\n\n" + "\n".join(lineas),
+            colour=discord.Colour(0xF1C40F)))
 
     @pss.command(name="plan")
     @commands.cooldown(1, COOLDOWN_SEGUNDOS, commands.BucketType.guild)
@@ -412,6 +496,11 @@ class PerfilPSS(commands.Cog):
         if nueva.guild_id != self.config.guild_id:
             await ctx.send("❌ No se puede cambiar `guild_id` con `recargar`: reinicia el bot.")
             return
+        faltan = comandos_de_ayuda_inexistentes(nueva, self.bot)
+        if faltan:
+            await ctx.send("❌ La ayuda del TOML no es válida; sigo con la versión anterior:\n```\n"
+                           + "\n".join(f"- {x}" for x in faltan)[:1800] + "\n```")
+            return
         self.config = nueva
         self._registrar_vista()
         await ctx.send(f"✅ TOML recargado: {len(nueva.roles)} roles, {len(nueva.categorias)} categorías, "
@@ -446,4 +535,7 @@ class PerfilPSS(commands.Cog):
 async def setup(bot):
     ruta = Path(os.getenv("PSS_PROFILE_CONFIG") or RUTA_POR_DEFECTO)
     config = cargar(ruta)   # ConfigInvalida -> la extension no carga y el bot lo registra
+    faltan = comandos_de_ayuda_inexistentes(config, bot)
+    if faltan:
+        raise ConfigInvalida(faltan)
     await bot.add_cog(PerfilPSS(bot, config, ruta))

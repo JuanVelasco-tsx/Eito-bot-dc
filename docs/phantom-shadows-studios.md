@@ -20,7 +20,7 @@ Es una extensión aislada: `profiles/pss.py` + `profiles/pss.toml`, que se carga
 | `PSS_PROFILE_CONFIG` | ruta a un `.toml` | Opcional. Usa otro archivo en vez de `profiles/pss.toml` (p. ej. para un servidor de pruebas). |
 
 Después de definirlas, reinicia/redespliega. En los logs debe salir
-`✅ Perfil PSS cargado (servidor 1420403964746268684, 10 comandos de EITO bloqueados ahí).`
+`✅ Perfil PSS cargado (servidor 1420403964746268684, 15 comandos de EITO bloqueados ahí).`
 Si el TOML no es válido, el bot arranca igual pero sin perfil y los logs listan **todos** los
 errores del archivo, uno por línea con su ruta (por ejemplo
 `roles[3] 'colaborador'.permisos: permiso invalido 'manage_server' (¿'manage_guild'?)`).
@@ -76,6 +76,7 @@ Tras aplicar, a mano:
 | `[perfil]` | `nombre`, `guild_id`, `owner_id` (solo verificación), `gestores` (keys de roles que pueden usar `!pss`; vacío = solo el dueño) |
 | `[eventos]` | `xp`, `voz`, `anti_multicuentas` (true/false), `rol_al_entrar`, `bienvenida`, `canal_logs` (keys) |
 | `[comandos]` | `bloquear = [...]` comandos de EITO que no funcionan en este servidor |
+| `[ayuda]` | `titulo`, `descripcion`, `pie` y `[[ayuda.secciones]]` (`titulo` + `comandos = [{ comando, uso, texto, solo_moderadores }]`): la ayuda de este servidor (ver «Ayuda del servidor» en la sección 5). Cada `comando` debe existir en el bot y no estar en `bloquear`; `texto` admite `{canal:key}` y `{rol:key}` |
 | `[[roles]]` | `key`, `nombre`, `color` (`"#RRGGBB"`), `hoist`, `mentionable`, `permisos` (flags de `discord.Permissions`), `existing_id`, `adoptar`, `permitir_admin`, `autoasignable`, `por_encima_del_bot` (el rol va a mano por encima del bot: el plan no avisa de la jerarquía; lo usa Propietario) |
 | `[[categorias]]` | `key`, `nombre`, `orden`, `existing_id`, `adoptar`, `overrides` |
 | `[[canales]]` | `key`, `nombre`, `nombre_actual` (solo con `adoptar`: cómo se llama hoy, para renombrarlo), `categoria`, `tipo` (`text`/`voice`/`news`/`forum`), `reemplaza` (solo foros), `tema`, `slowmode`, `limite_usuarios`, `orden`, `existing_id`, `adoptar`, `mover`, `sincronizar_permisos`, `overrides` |
@@ -136,6 +137,8 @@ archivo cambia en disco. `guild_id` no se puede cambiar con `recargar` (reinicia
   separadores); si el nombre coincide con varios, queda bloqueado en vez de adivinar.
 - Otros comandos: `!pss estado` (mapa key → ID guardado) y `!pss olvidar <key>` (borra solo el
   mapeo, nunca el recurso de Discord; útil si un ID guardado es incorrecto).
+- `!pss ayuda` lista estos subcomandos (`plan`, `aplicar`, `recargar`, `estado`, `olvidar` y
+  `ayuda`) con una línea cada uno. Como todo `!pss`, solo lo usan el dueño y los gestores.
 
 ## 5. Qué hace y qué no hace
 
@@ -182,9 +185,22 @@ canal `🛡️・registros` de Staff; deja categorías y canales en el orden del
 ### Comandos bloqueados en PSS
 `!setup`, `!setupsteam`, `!setuprecompensas`, `!crearvcs`, `!panelcochipuerco`, `!panelroles`,
 `!reglas`, `!info`/`!guia`, `!presentaciones` y `!paneltickets` (crearían o publicarían
-estructura de EITO, y los tickets usan IDs de roles de EITO). Responden «Este comando de EITO no
-está disponible en Phantom Shadows Studios». Moderación, `!encuesta`, `!sugerencia`, `!nivel`,
-`!top`, `!ayuda`, `!anuncio`, `!exportarserver`… siguen funcionando.
+estructura de EITO, y los tickets usan IDs de roles de EITO), más `!steam`, `!jugar`, `!nivel`,
+`!top` y `!perfil` (niveles, perfiles de Steam y partidas son de la comunidad de EITO). Quien los
+use en PSS lee **«Este comando no está disponible en este servidor.»**: los comandos que tienen
+manejador de errores propio (todos salvo `!top`) lo muestran como «❌ Error: …» y `!top`, que no
+tenía manejador y se quedaba mudo, lo responde el perfil. Moderación, `!encuesta`, `!sugerencia`,
+`!ayuda`, `!anuncio`, `!exportarserver`… siguen funcionando (aunque no todos salen en la ayuda).
+
+### Ayuda del servidor (`!ayuda`)
+En PSS `!ayuda` no muestra la lista de EITO sino la de la sección `[ayuda]` del TOML (gancho de
+4 líneas en el comando `!ayuda`: si el perfil gestiona el servidor, delega en `enviar_ayuda`; en
+EITO o sin perfil, nada cambia). Igual que la de EITO, **solo muestra los comandos que quien
+pregunta puede ejecutar** (`can_run`): un miembro ve Comunidad y Utilidad, un moderador además
+Moderación. `!warns` lo puede usar cualquiera para ver sus avisos, así que lleva
+`solo_moderadores = true` para que en la ayuda solo salga a quien puede expulsar o aislar. Al
+cargar el perfil (y con `!pss recargar`) se comprueba que cada comando de la ayuda exista en el
+bot; si no, el perfil no carga (o `recargar` conserva la versión anterior) y lo dice.
 
 ## 6. Probarlo sin staging
 
@@ -202,8 +218,9 @@ está disponible en Phantom Shadows Studios». Moderación, `!encuesta`, `!suger
   (anti-multicuentas, XP…). Mira los logs tras cada deploy.
 - Si la conexión a PostgreSQL se corta durante `aplicar`, el lock se libera solo (la sesión
   termina) pero la aplicación continúa; repetir `!pss aplicar` es seguro.
-- Los 5 miembros actuales dejarán de ver `#info-importante`, `#planificación-de-sesiones` y
-  `🔊 Reuniones` (pasan a 🔒 Equipo) hasta recibir «Colaborador», «Developer» o «Administrador».
+- `#info-importante`, `#planificación-de-sesiones` y `🔊 Reuniones` **ya están en 🔒 Equipo y
+  sincronizados** (lo hizo el primer `!pss aplicar`): solo los ven «Developer», «Colaborador» y
+  «Administrador». Quien entre sin uno de esos roles no los verá; dáselo a mano si debe verlos.
 - `#frontend` y `#backend` se **quitaron del TOML**: el dueño los borró a propósito del servidor.
   Sus filas en `perfil_recursos` quedan huérfanas y no molestan (puedes borrarlas con
   `!pss olvidar frontend` / `backend`).
@@ -283,7 +300,7 @@ mano al abrirlo a la comunidad:
 2. Borra la carpeta `profiles/`, `tests/test_pss_*.py` y este documento.
 3. Deja `eito_setup_bot.py` como estaba: quita el bloque `PSS_PROFILE_ENABLED`, la función
    `evento_permitido` y sus 2 usos (`sumar_xp`, `contar_voz_guild`), la línea `perfil = bot.get_cog(...)`
-   en `registrar_log`, la delegación en `on_member_join` y el bloque `load_extension` de
+   en `registrar_log`, la delegación en `on_member_join`, la delegación en `!ayuda` (4 líneas) y el bloque `load_extension` de
    `setup_hook` (o `git revert` del commit que los añadió).
 4. Opcional, borrar la tabla: `DROP TABLE perfil_recursos;`
 5. Opcional, limpiar datos de PSS que el bot acumuló *antes* del perfil (XP y contadores):

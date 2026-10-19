@@ -126,6 +126,31 @@ class Mensaje:
 
 
 @dataclass(frozen=True)
+class EntradaAyuda:
+    comando: str                      # nombre del comando de EITO (sin «!»)
+    texto: str                        # que hace (admite {canal:key} y {rol:key})
+    uso: str = ""                     # como se escribe, p. ej. "!avatar [@usuario]" (por defecto "!comando")
+    solo_moderadores: bool = False    # ademas de can_run: solo quien puede kick_members o moderate_members
+
+    def linea(self):
+        return f"`{self.uso or '!' + self.comando}` — {self.texto}"
+
+
+@dataclass(frozen=True)
+class SeccionAyuda:
+    titulo: str
+    entradas: tuple
+
+
+@dataclass(frozen=True)
+class Ayuda:
+    titulo: str
+    descripcion: str = ""
+    pie: str = ""
+    secciones: tuple = ()
+
+
+@dataclass(frozen=True)
 class Eventos:
     xp: bool = False
     voz: bool = False
@@ -148,6 +173,7 @@ class Config:
     canales: tuple
     mensajes: tuple
     _indice: dict = field(default_factory=dict, repr=False, compare=False)
+    ayuda: Ayuda | None = None
 
     def rol(self, key):
         return self._indice.get(("rol", key))
@@ -293,6 +319,89 @@ def _parsear_overrides(v, datos, ruta):
     return tuple(resultado)
 
 
+MAX_AYUDA_USO = 100
+MAX_AYUDA_TEXTO = 300
+REGEX_COMANDO = re.compile(r"[a-z0-9_]+")
+
+
+def _largo_con_menciones(texto):
+    return len(REGEX_PLACEHOLDER.sub("x" * LARGO_MENCION, texto))
+
+
+def _parsear_ayuda(v, bruto, bloqueados, claves_canales, claves_roles):
+    """[ayuda]: titulo, descripcion, pie y [[ayuda.secciones]] con la lista de comandos.
+
+    Aqui solo se valida lo que se puede sin el bot (formato, limites, no repetir, que no esten en
+    [comandos].bloquear y las menciones); que cada comando EXISTA en el bot lo comprueba
+    `comandos_de_ayuda_inexistentes` al cargar la extension."""
+    if bruto is None:
+        return None
+    a = v.tabla(bruto, "ayuda")
+    v.desconocidas(a, {"titulo", "descripcion", "pie", "secciones"}, "ayuda")
+    titulo = v.texto(a, "titulo", "ayuda", requerido=True, maximo=MAX_EMBED_TITULO)
+    descripcion = v.texto(a, "descripcion", "ayuda", maximo=MAX_EMBED_DESCRIPCION)
+    pie = v.texto(a, "pie", "ayuda", maximo=MAX_EMBED_PIE)
+    secciones, vistos = [], {}
+    brutas = v.lista_de_tablas(a.get("secciones"), "ayuda.secciones")
+    if not brutas:
+        v.error("ayuda.secciones", "pon al menos una seccion ([[ayuda.secciones]])")
+    if len(brutas) > MAX_EMBED_CAMPOS:
+        v.error("ayuda.secciones", f"hay {len(brutas)} secciones (maximo {MAX_EMBED_CAMPOS})")
+    total = _largo_con_menciones(titulo) + _largo_con_menciones(descripcion) + _largo_con_menciones(pie)
+    for i, s in enumerate(brutas):
+        ruta = f"ayuda.secciones[{i}]"
+        v.desconocidas(s, {"titulo", "comandos"}, ruta)
+        nombre = v.texto(s, "titulo", ruta, requerido=True, maximo=MAX_CAMPO_NOMBRE)
+        ruta = f"ayuda.secciones[{i}] '{nombre}'"
+        entradas = []
+        crudas = v.lista_de_tablas(s.get("comandos"), f"{ruta}.comandos")
+        if not crudas:
+            v.error(f"{ruta}.comandos", "pon al menos un comando")
+        for j, c in enumerate(crudas):
+            rc = f"{ruta}.comandos[{j}]"
+            v.desconocidas(c, {"comando", "uso", "texto", "solo_moderadores"}, rc)
+            comando = v.texto(c, "comando", rc, requerido=True)
+            if comando:
+                rc = f"{ruta}.comandos[{j}] '{comando}'"
+                if not REGEX_COMANDO.fullmatch(comando):
+                    v.error(rc, "el nombre del comando va sin «!» y en minusculas ([a-z0-9_])")
+                if comando in bloqueados:
+                    v.error(rc, "esta en [comandos] bloquear: no puede salir en la ayuda")
+                if comando in vistos:
+                    v.error(rc, f"repetido (ya sale en la seccion '{vistos[comando]}')")
+                vistos.setdefault(comando, nombre)
+            entrada = EntradaAyuda(
+                comando=comando, texto=v.texto(c, "texto", rc, requerido=True, maximo=MAX_AYUDA_TEXTO),
+                uso=v.texto(c, "uso", rc, maximo=MAX_AYUDA_USO),
+                solo_moderadores=v.booleano(c, "solo_moderadores", rc),
+            )
+            for tipo_ref, key_ref in REGEX_PLACEHOLDER.findall(entrada.texto):
+                if tipo_ref == "canal" and key_ref not in claves_canales:
+                    v.error(rc, f"{{canal:{key_ref}}} no existe en [[canales]]")
+                if tipo_ref == "rol" and key_ref not in claves_roles:
+                    v.error(rc, f"{{rol:{key_ref}}} no existe en [[roles]]")
+            entradas.append(entrada)
+        largo_campo = _largo_con_menciones("\n".join(e.linea() for e in entradas))
+        if largo_campo > MAX_CAMPO_VALOR:
+            v.error(ruta, f"la lista suma {largo_campo} caracteres (maximo {MAX_CAMPO_VALOR} por seccion)")
+        total += _largo_con_menciones(nombre) + largo_campo
+        secciones.append(SeccionAyuda(nombre, tuple(entradas)))
+    if total > MAX_EMBED_TOTAL:
+        v.error("ayuda", f"el embed suma {total} caracteres (maximo {MAX_EMBED_TOTAL})")
+    return Ayuda(titulo, descripcion, pie, tuple(secciones))
+
+
+def comandos_de_ayuda_inexistentes(config, bot):
+    """Errores (lista de textos) por cada comando de [ayuda] que el bot no tiene."""
+    errores = []
+    if config.ayuda is not None:
+        for s in config.ayuda.secciones:
+            for e in s.entradas:
+                if bot.get_command(e.comando) is None:
+                    errores.append(f"ayuda.secciones '{s.titulo}': el comando '{e.comando}' no existe en el bot")
+    return errores
+
+
 def _estimar_largo_embed(m):
     def largo(texto):
         return len(REGEX_PLACEHOLDER.sub("x" * LARGO_MENCION, texto))
@@ -307,7 +416,7 @@ def parsear(datos):
     """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
     v = _Validador()
     raiz = v.tabla(datos, "(raiz)")
-    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
 
     # --- [perfil] ---
     p = v.tabla(raiz.get("perfil", {}), "perfil")
@@ -461,6 +570,10 @@ def parsear(datos):
     if "pss" in bloqueados:
         v.error("comandos.bloquear", "no se puede bloquear 'pss' (es el propio perfil)")
 
+    # --- [ayuda] ---
+    ayuda = _parsear_ayuda(v, raiz.get("ayuda"), bloqueados,
+                           {c.key for c in canales}, {r.key for r in roles})
+
     # --- claves unicas globales ---
     indice = {}
     vistas = {}
@@ -544,7 +657,7 @@ def parsear(datos):
         nombre=nombre_perfil, guild_id=guild_id, owner_id=owner_id, gestores=gestores,
         eventos=eventos, comandos_bloqueados=bloqueados,
         roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
-        mensajes=tuple(mensajes), _indice=indice,
+        mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda,
     )
 
 
