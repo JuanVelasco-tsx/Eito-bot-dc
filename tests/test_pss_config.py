@@ -66,13 +66,14 @@ def test_estructura_publica_solo_equipo_y_staff_son_privadas():
     # Orden de las categorias y nombres con el formato "emoji » NOMBRE"
     cats = sorted(c.categorias, key=lambda x: x.orden)
     assert [x.nombre for x in cats] == [
-        "📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF"]
-    assert [x.key for x in cats] == ["cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff"]
+        "📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF", "🎫 » TICKETS"]
+    assert [x.key for x in cats] == ["cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff",
+                                     "cat_tickets"]
     for vieja in ("cat_anuncios", "cat_roblox", "cat_soporte", "cat_proyectos"):
         assert c.categoria(vieja) is None                  # fusionadas: sus canales se mueven
     privadas = {cat.key for cat in c.categorias
                 if any(o.objetivo == "@everyone" and "view_channel" in o.denegar for o in cat.overrides)}
-    assert privadas == {"cat_equipo", "cat_staff"}
+    assert privadas == {"cat_equipo", "cat_staff", "cat_tickets"}
     equipo = c.categoria("cat_equipo")
     assert {o.objetivo for o in equipo.overrides if "view_channel" in o.permitir} == {"developer", "colaborador", "administrador"}
     staff = c.categoria("cat_staff")
@@ -116,10 +117,11 @@ def test_canales_segun_la_estructura_objetivo():
     assert en("cat_estudio") == ["📜・reglas", "👋・bienvenida", "📣・anuncios", "ℹ️・info-estudio"]
     assert en("cat_comunidad") == ["💬・general", "🙋・presentaciones", "📸・showcase", "💡・sugerencias", "🤖・comandos",
                                   "📈・niveles", "🎲・no-relacionado"]
-    assert en("cat_desarrollo") == ["🟥・scripting-luau", "❓・ayuda"]
+    assert en("cat_desarrollo") == ["🟥・scripting-luau", "❓・ayuda", "🎫・soporte"]
     assert en("cat_voz") == ["🔊 General"]
     assert en("cat_equipo") == ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"]
-    assert en("cat_staff") == ["🛡️・registros", "🧪・pruebas-bot"]
+    assert en("cat_staff") == ["🛡️・registros", "🧪・pruebas-bot", "📁・tickets-log"]
+    assert en("cat_tickets") == []                      # aqui el bot crea un canal por ticket
     # tipos: anuncios = news (se convierte el existente), ayuda = foro nuevo que reemplaza al canal de texto
     assert c.canal("anuncios").tipo == "news" and c.canal("anuncios").mover
     ayuda = c.canal("ayuda")
@@ -138,7 +140,7 @@ def test_canales_segun_la_estructura_objetivo():
     assert c.canal("voz_general").tipo == "voice" and c.canal("voz_general").overrides == ()
     # hasta 24 canales de texto (texto + anuncios + foros), mas la voz
     no_voz = [x for x in c.canales if x.tipo != "voice"]
-    assert len(no_voz) == 17 <= 24 and len([x for x in c.canales if x.tipo == "voice"]) == 2
+    assert len(no_voz) == 19 <= 24 and len([x for x in c.canales if x.tipo == "voice"]) == 2
 
 
 def test_sugerencias_usa_el_nombre_exacto_que_busca_el_comando_de_eito(mod):
@@ -318,8 +320,9 @@ def test_fase_1_xp_bienvenida_y_comandos():
     # bloqueados: sin nivel/top, con fundadores/importarniveles/darnivel
     assert c.comandos_bloqueados == {
         "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco", "panelroles", "reglas", "info",
-        "presentaciones", "paneltickets", "steam", "jugar", "perfil", "fundadores", "importarniveles", "darnivel"}
-    assert "nivel" not in c.comandos_bloqueados and "top" not in c.comandos_bloqueados
+        "presentaciones", "steam", "jugar", "perfil", "importarniveles", "darnivel"}
+    for habilitado in ("nivel", "top", "fundadores", "paneltickets"):
+        assert habilitado not in c.comandos_bloqueados, habilitado
 
 
 def test_la_bienvenida_enlaza_a_las_reglas_y_a_info_estudio():
@@ -342,6 +345,68 @@ def test_bienvenida_validacion():
     d["bienvenida"] = {"titulo": "x"}
     assert "bienvenida.descripcion: es obligatorio" in " | ".join(errores_de(d))
     d["bienvenida"] = {"titulo": "x", "descripcion": "y", "otra": 1}
+    assert "clave desconocida" in " | ".join(errores_de(d))
+
+
+# --- Fase 2: rangos, tickets y recursos ---------------------------------------------------------------------
+def test_fase_2_roles_de_rango_y_distincion_sin_permisos():
+    c = cargar(RUTA_REAL)
+    nombres = {"activo_mes": "🔥 Activo del mes", "og": "🥇 OG", "fundador": "🌱 Fundador",
+               "leyenda": "🥈 Leyenda", "veterano": "🥉 Veterano"}
+    for key, nombre in nombres.items():
+        rol = c.rol(key)
+        assert rol.nombre == nombre and rol.permisos == () and not rol.autoasignable and not rol.mentionable, key
+    assert c.rol("og").hoist and c.rol("activo_mes").hoist and not c.rol("fundador").hoist
+    assert not any("administrator" in r.permisos for r in c.roles)
+
+
+def test_fase_2_recursos_apuntan_a_roles_canales_y_categoria_de_tickets():
+    r = cargar(RUTA_REAL).recursos
+    assert r.roles["staff_tickets"] == ("propietario", "administrador")
+    assert r.roles["ping_tickets"] == ("propietario", "administrador")
+    assert r.roles["excluidos_activo_mes"] == ("developer",) and r.roles["honor"] == ("og",)
+    assert "developer" not in r.roles                         # sin mapear: setxp/resetxp/exportarserver/fundadores, solo el dueño
+    for clave in ("activo_mes", "fundador", "veterano", "leyenda", "og"):
+        assert r.roles[clave] == (clave,)
+    assert r.canales == {"anuncios": "anuncios", "niveles": "niveles", "soporte": "soporte",
+                         "transcripciones": "tickets_log"}
+    assert "logros" not in r.canales                          # los logros caen a 📈・niveles
+    assert r.categorias == {"tickets": "cat_tickets"}
+
+
+def test_fase_2_tickets_soporte_y_log():
+    c = cargar(RUTA_REAL)
+    soporte, log = c.canal("soporte"), c.canal("tickets_log")
+    assert soporte.nombre == "🎫・soporte" and soporte.categoria == "cat_desarrollo"
+    assert soporte.orden > c.canal("ayuda").orden                    # debajo del foro
+    todos = next(o for o in soporte.overrides if o.objetivo == "@everyone")
+    assert "send_messages" in todos.denegar and "view_channel" not in todos.denegar
+    assert log.nombre == "📁・tickets-log" and log.categoria == "cat_staff" and log.overrides == ()
+    assert "#🎫・soporte" in c.canal("ayuda").tema                    # el tema del foro lo enlaza
+    assert c.categoria("cat_tickets").nombre == "🎫 » TICKETS"
+    assert "{canal:soporte}" in c.mensaje("msg_guia").descripcion
+
+
+def test_fase_2_rangos_y_ayuda():
+    c = cargar(RUTA_REAL)
+    import datetime as dt
+    assert c.rangos.contar_desde == dt.datetime(2026, 10, 19, tzinfo=dt.timezone.utc)
+    administracion = next(s for s in c.ayuda.secciones if s.titulo == "⚙️ Administración")
+    assert [e.comando for e in administracion.entradas] == ["anuncio", "exportarserver", "setxp", "resetxp", "fundadores"]
+
+
+def test_rangos_validacion():
+    import datetime as dt
+    d = datos()
+    assert parsear(d).rangos.contar_desde is None                       # sin la clave: cuenta la entrada
+    d["rangos"] = {"contar_desde": "2026-10-19"}
+    assert parsear(d).rangos.contar_desde == dt.datetime(2026, 10, 19, tzinfo=dt.timezone.utc)
+    d["rangos"] = {"contar_desde": dt.date(2026, 10, 19)}                # fecha nativa de TOML
+    assert parsear(d).rangos.contar_desde == dt.datetime(2026, 10, 19, tzinfo=dt.timezone.utc)
+    for malo in ("19/10/2026", "mañana", 5):
+        d["rangos"] = {"contar_desde": malo}
+        assert "rangos.contar_desde" in " | ".join(errores_de(d)), malo
+    d["rangos"] = {"otra": 1}
     assert "clave desconocida" in " | ".join(errores_de(d))
 
 

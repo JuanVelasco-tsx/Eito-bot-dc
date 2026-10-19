@@ -517,6 +517,13 @@ def categoria_de(guild, clave):
     return discord.utils.get(guild.categories, name=NOMBRES_CATEGORIAS_EITO[clave]())
 
 
+def inicio_rangos(guild, fecha):
+    """Desde cuando cuentan los dias de un miembro para los rangos por antiguedad: su fecha de
+    entrada (EITO) o, en PSS, la mas tardia entre esa y `[rangos] contar_desde`."""
+    perfil = _perfil_de(guild)
+    return perfil.inicio_rangos(fecha) if perfil is not None else fecha
+
+
 def recompensas_de(guild):
     """(nivel, nombre del rol, color, nombre del canal) de las recompensas por nivel del servidor."""
     perfil = _perfil_de(guild)
@@ -1005,6 +1012,18 @@ def nombre_sin_emoji(nombre):
     return limpio or nombre
 
 
+def logro_de_perfil(guild, rol):
+    """Texto del logro de un rol de PSS (los de LOGROS_INFO estan por ID de EITO): el de la clave
+    equivalente, con el nombre del servidor en vez de «EITO». None en EITO o si no tiene texto."""
+    if _perfil_de(guild) is None:
+        return None
+    for clave in ("og", "voz_activa"):
+        if rol.id in ids_de(guild, clave):
+            emoji, titulo, frase = LOGROS_INFO[IDS_ROLES_EITO[clave]()[0]]
+            return emoji, titulo.replace("EITO", guild.name), frase
+    return None
+
+
 async def anunciar_logro(miembro, rol, motivo=""):
     """Anuncia que `miembro` consiguio `rol` en el canal de logros.
 
@@ -1019,7 +1038,8 @@ async def anunciar_logro(miembro, rol, motivo=""):
         print(f"⚠️ [{miembro.guild.name}] No hay canal de logros ({CANAL_LOGROS}) ni de "
               f"niveles para anunciar {rol.name} de {miembro}.")
         return False
-    emoji, titulo, frase = LOGROS_INFO.get(rol.id, ("🏅", "Nuevo logro", motivo))
+    emoji, titulo, frase = (LOGROS_INFO.get(rol.id) or logro_de_perfil(miembro.guild, rol)
+                            or ("🏅", "Nuevo logro", motivo))
     nombre = nombre_sin_emoji(rol.name)
     color = rol.colour if rol.colour.value else discord.Colour(0xF1C40F)
     descripcion = f"{miembro.mention} recibió el rango **{nombre}**."
@@ -1030,7 +1050,8 @@ async def anunciar_logro(miembro, rol, motivo=""):
     # Posicion = cuantos miembros tienen el rol. Si la cache aun no refleja al
     # nuevo (add_roles no la actualiza al instante), se cuenta igual.
     posicion = len({m.id for m in rol.members} | {miembro.id})
-    embed.set_footer(text=f"Eres el {nombre} #{posicion} · Mira tus logros con !perfil")
+    comando_logros = "!perfil" if _perfil_de(miembro.guild) is None else "!antiguedad"   # !perfil no existe en PSS
+    embed.set_footer(text=f"Eres el {nombre} #{posicion} · Mira tus logros con {comando_logros}")
     try:
         # El ping real va en el contenido: las menciones dentro de un embed no notifican.
         await canal.send(
@@ -1059,11 +1080,11 @@ def lista_nombres(miembros):
     return f"{nombres} +{resto} más" if resto > 0 else nombres
 
 
-def texto_resumen_rangos(veteranos, leyendas):
+def texto_resumen_rangos(veteranos, leyendas, servidor="EITO"):
     """Resumen de ascensos por antiguedad, con los nombres de cada rango."""
     lineas = [
         f"🎖️ Hoy {len(veteranos)} nuevos Veteranos y {len(leyendas)} nuevas Leyendas. "
-        "¡Gracias por seguir en EITO!"
+        f"¡Gracias por seguir en {servidor}!"
     ]
     if veteranos:
         lineas.append(f"🥉 **Veteranos:** {lista_nombres(veteranos)}")
@@ -1108,7 +1129,7 @@ async def actualizar_rangos_guild(guild):
         try:
             if miembro.bot or miembro.joined_at is None:
                 continue
-            dias = (ahora - miembro.joined_at).days
+            dias = (ahora - inicio_rangos(guild, miembro.joined_at)).days
             if dias >= DIAS_LEYENDA:
                 if leyenda not in miembro.roles:
                     await miembro.add_roles(leyenda, reason="Rango por antigüedad")
@@ -1134,7 +1155,9 @@ async def actualizar_rangos():
                 canal = canal_logros(guild)
                 if canal is not None:
                     await canal.send(
-                        texto_resumen_rangos(nuevos_veteranos, nuevas_leyendas),
+                        texto_resumen_rangos(
+                            nuevos_veteranos, nuevas_leyendas,
+                            guild.name if _perfil_de(guild) is not None else "EITO"),
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
         except Exception:
@@ -1407,6 +1430,11 @@ async def ticket_abrir(interaction):
     canal = None
     try:
         categoria = categoria_de(guild, "tickets")
+        if categoria is None and _perfil_de(guild) is not None:
+            await interaction.followup.send(
+                "❌ La categoría de tickets aún no existe. Avisa a un admin (falta `!pss aplicar`).",
+                ephemeral=True)
+            return
         if categoria is None:
             categoria = await guild.create_category(
                 CATEGORIA_TICKETS,
@@ -1725,6 +1753,19 @@ def embed_bienvenida(member):
     return embed
 
 
+async def devolver_fundador(member):
+    """Fundador: si ya estaba en la lista, recupera su rol. Cualquier fallo (BD, permisos) se
+    registra y no impide la bienvenida."""
+    guild = member.guild
+    try:
+        if await get_fundador(guild.id, member.id) is not None:
+            rol_fundador = rol_de(guild, "fundador")
+            if rol_fundador is not None:
+                await member.add_roles(rol_fundador, reason="Fundador que vuelve")
+    except Exception as e:
+        print(f"⚠️ No pude devolver el rol Fundador a {member} en {guild.name}: {e}")
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     """Da la bienvenida y asigna el rol automatico cuando entra alguien."""
@@ -1732,7 +1773,8 @@ async def on_member_join(member: discord.Member):
     # si aplica el anti-multicuentas.
     perfil = bot.get_cog("PerfilPSS")
     if perfil is not None and perfil.maneja(member.guild):
-        await perfil.al_entrar(member)
+        if await perfil.al_entrar(member) is not False:     # False = la cuenta se expulso
+            await devolver_fundador(member)
         return
     # Anti-multicuentas: si la cuenta es demasiado nueva se expulsa y no recibe
     # rol ni bienvenida.
@@ -1752,15 +1794,7 @@ async def on_member_join(member: discord.Member):
         except discord.Forbidden:
             print(f"⚠️ Sin permisos para dar el rol {ROL_AUTOMATICO}")
 
-    # Fundador: si ya estaba en la lista, recupera su rol. Cualquier fallo
-    # (BD, permisos) se registra y no impide la bienvenida.
-    try:
-        if await get_fundador(guild.id, member.id) is not None:
-            rol_fundador = rol_de(guild, "fundador")
-            if rol_fundador is not None:
-                await member.add_roles(rol_fundador, reason="Fundador que vuelve")
-    except Exception as e:
-        print(f"⚠️ No pude devolver el rol Fundador a {member} en {guild.name}: {e}")
+    await devolver_fundador(member)
 
     # Mensaje de bienvenida (embed con foto y contador de miembros)
     canal = discord.utils.get(guild.text_channels, name=CANAL_BIENVENIDA)
@@ -1984,6 +2018,8 @@ async def configurar_canal_soporte(ctx):
     """Deja el canal de soporte solo-lectura para @everyone (solo el bot escribe):
     los miembros usan el boton del panel, no escriben ahi."""
     guild = ctx.guild
+    if _perfil_de(guild) is not None:
+        return  # PSS: los permisos de estos canales son los del TOML (el plan los mantiene)
     canal = canal_de(guild, "soporte")
     if canal is None:
         return
@@ -2093,6 +2129,8 @@ async def configurar_canal_transcripciones(ctx):
     """Oculta el canal de transcripciones de tickets para @everyone y lo deja
     visible solo para ROLES_STAFF_TICKETS (y el bot)."""
     guild = ctx.guild
+    if _perfil_de(guild) is not None:
+        return  # PSS: los permisos de estos canales son los del TOML (el plan los mantiene)
     canal = canal_de(guild, "transcripciones")
     if canal is None:
         return
@@ -3894,7 +3932,7 @@ async def antiguedad(ctx, miembro: discord.Member = None):
     miembro = miembro or ctx.author
     ahora = datetime.now(timezone.utc)
     ids_roles = {rol.id for rol in miembro.roles}
-    dias = (ahora - miembro.joined_at).days if miembro.joined_at else None
+    dias = (ahora - inicio_rangos(ctx.guild, miembro.joined_at)).days if miembro.joined_at else None
 
     rango, siguiente = rango_antiguedad(ids_roles, dias)
 
@@ -3922,7 +3960,7 @@ async def antiguedad(ctx, miembro: discord.Member = None):
         print(f"⚠️ No pude consultar el puesto de fundador de {miembro}: {e}")
     if puesto is not None:
         distinciones.append(f"🌱 Fundador #{puesto}")
-    if ROL_OG_ID in ids_roles:
+    if ids_roles & set(ids_de(ctx.guild, "og")):
         distinciones.append("🥇 OG")
     if distinciones:
         embed.add_field(name="🏅 Distinciones", value="\n".join(distinciones), inline=False)

@@ -11,6 +11,7 @@ otros loops). El bot principal habla con el cog solo a traves de `bot.get_cog("P
     canal_logs(guild)        canal de logs de moderacion del perfil (o None)
     al_entrar(member)        sustituye al on_member_join de EITO en este servidor
     enviar_ayuda(ctx)        la ayuda de este servidor (sustituye a !ayuda de EITO)
+    inicio_rangos(fecha)     desde cuando cuentan los dias de un miembro para los rangos por antiguedad
     recurso_ids/rol/canal/categoria, recompensas
                              resolvedor de roles y canales de los sistemas de EITO ([recursos])
 
@@ -221,6 +222,11 @@ class PerfilPSS(commands.Cog):
         categoria = guild.get_channel(self.ids.get(key, 0)) if key else None
         return categoria if isinstance(categoria, discord.CategoryChannel) else None
 
+    def inicio_rangos(self, fecha):
+        """La mas tardia entre la fecha de entrada y `[rangos] contar_desde` (sin la segunda, la primera)."""
+        desde = self.config.rangos.contar_desde
+        return max(fecha, desde) if desde is not None else fecha
+
     def recompensas(self, guild):
         """Recompensas por nivel de este servidor: (nivel, nombre del rol, color, nombre del canal).
         Ninguna por ahora: el TOML aun no las define (EITO usa las suyas, no estas)."""
@@ -242,16 +248,17 @@ class PerfilPSS(commands.Cog):
         return embed
 
     async def al_entrar(self, member):
-        """Sustituye al on_member_join de EITO en el servidor del perfil."""
+        """Sustituye al on_member_join de EITO en el servidor del perfil.
+        Devuelve False si no hay que seguir con la cuenta (se expulso, o es un bot)."""
         if member.bot:
-            return
+            return False
         guild = member.guild
         if self.config.eventos.anti_multicuentas:
             # El filtro de EITO no escucha por su cuenta: lo llama on_member_join, asi que
             # aqui se invoca solo si el TOML lo pide.
             cog = self.bot.get_cog("AntiMulticuentas")
             if cog is not None and not await cog.filtrar_miembro(member):
-                return
+                return False
         key_rol = self.config.eventos.rol_al_entrar
         if key_rol:
             rol = guild.get_role(self.ids.get(key_rol, 0))

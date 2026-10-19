@@ -12,7 +12,7 @@
 #     bot solo se toca si lo marcas aqui (`adoptar`, `mover`, `sincronizar_permisos`).
 #     Unica excepcion: al mover un mensaje del bot a otro canal se republica y se borra el
 #     antiguo, solo si es del bot y esta mapeado.
-#   - Estructura pequeña a proposito (17 canales de texto/anuncios/foros y 2 de voz). Lo demas
+#   - Estructura pequeña a proposito (19 canales de texto/anuncios/foros y 2 de voz). Lo demas
 #     esta COMENTADO como plantilla: descomentalo cuando haga falta.
 #   - Los canales de anuncios ("news") y los foros ("forum") exigen la funcion COMUNIDAD:
 #     activala antes de `!pss aplicar` (si no, el plan los marca "bloqueado: activa Comunidad").
@@ -50,14 +50,20 @@ color = "#2ECC71"
 # Comandos de EITO que crearian o publicarian estructura de EITO: no funcionan en PSS.
 bloquear = [
   "setup", "setupsteam", "setuprecompensas", "crearvcs", "panelcochipuerco",
-  "panelroles", "reglas", "info", "presentaciones", "paneltickets",
+  "panelroles", "reglas", "info", "presentaciones",
   # Del bot de la comunidad de EITO (perfiles de Steam, partidas, tarjeta de perfil): no aplican en PSS.
   "steam", "jugar", "perfil",
-  # fundadores: se habilita en la Fase 2. importarniveles: nunca (lee avisos de niveles de EITO).
-  # darnivel: herramienta de pruebas, no debe existir en un servidor real.
-  "fundadores", "importarniveles", "darnivel",
+  # importarniveles: nunca (lee avisos de niveles de EITO). darnivel: herramienta de pruebas,
+  # no debe existir en un servidor real.
+  "importarniveles", "darnivel",
 ]
 # Quien los use aqui ve "Este comando no está disponible en este servidor."
+
+# Rangos por antiguedad (Veterano a los 90 dias y Leyenda a los 180, como en EITO). En PSS los dias
+# cuentan desde la mas tardia entre la fecha de entrada y `contar_desde` (UTC): asi nadie sube de
+# golpe por haber entrado antes de que existieran los rangos. Sin la clave, cuenta la entrada.
+[rangos]
+contar_desde = "2026-10-19"
 
 # =====================================================================
 #  AYUDA de este servidor (!ayuda). Cada comando debe existir en el bot y NO estar en
@@ -110,6 +116,7 @@ comandos = [
   { comando = "exportarserver", texto = "exporta roles y canales a JSON por mensaje privado" },
   { comando = "setxp", uso = "!setxp @usuario <xp>", texto = "fija la XP total de alguien" },
   { comando = "resetxp", uso = "!resetxp @usuario", texto = "pone en 0 la XP total de alguien" },
+  { comando = "fundadores", uso = "!fundadores [confirmar]", texto = "da el rol 🌱 Fundador a los 100 primeros miembros (una sola vez; sin `confirmar` es solo una vista previa)" },
 ]
 
 # =====================================================================
@@ -119,9 +126,27 @@ comandos = [
 #  Lo que NO este aqui no existe en PSS (nunca se usan los IDs de EITO), asi que cada sistema se
 #  activa añadiendo sus claves. Claves validas: ver RECURSOS_* en profiles/pss_config.py.
 # =====================================================================
+[recursos.roles]
+activo_mes = "activo_mes"          # top 3 de XP del mes anterior
+fundador = "fundador"              # !fundadores y el fundador que vuelve
+veterano = "veterano"              # rangos por antiguedad (solo tiempo)
+leyenda = "leyenda"
+og = "og"                          # honor: lo da el staff a mano
+honor = ["og"]                     # roles de honor: al darlos a mano se anuncia el logro
+excluidos_activo_mes = ["developer"]   # no ganan el Activo del mes (el dueño y los bots, siempre)
+staff_tickets = ["propietario", "administrador"]   # ven y cierran los tickets
+ping_tickets = ["propietario", "administrador"]    # se mencionan al abrir un ticket
+# `developer` sin mapear a proposito: !exportarserver, !setxp, !resetxp y !fundadores son solo del dueño.
+# Sin `logros`: los logros se anuncian en 📈・niveles (el respaldo de EITO).
+
 [recursos.canales]
 anuncios = "anuncios"              # !anuncio publica aqui
-niveles = "niveles"                # avisos de nivel (sumar_xp) y, mas adelante, logros y Activo del mes
+niveles = "niveles"                # avisos de nivel, logros y Activo del mes
+soporte = "soporte"                # donde !paneltickets publica el panel
+transcripciones = "tickets_log"    # transcripcion de cada ticket al cerrarlo
+
+[recursos.categorias]
+tickets = "cat_tickets"            # donde se crean los canales de ticket
 
 # =====================================================================
 #  ROLES (de arriba abajo)
@@ -168,6 +193,40 @@ key = "helper"
 nombre = "Helper"
 color = "#1ABC9C"
 hoist = true
+permisos = []
+
+# Rangos y distinciones: sin permisos; los da el bot (o el staff, en OG). El bot los gestiona por
+# estar por encima de ellos (los roles nuevos se crean por debajo del rol del bot).
+[[roles]]
+key = "activo_mes"
+nombre = "🔥 Activo del mes"
+color = "#FF5722"
+hoist = true
+permisos = []
+
+[[roles]]
+key = "og"
+nombre = "🥇 OG"
+color = "#FFD700"
+hoist = true
+permisos = []
+
+[[roles]]
+key = "fundador"
+nombre = "🌱 Fundador"
+color = "#57F287"
+permisos = []
+
+[[roles]]
+key = "leyenda"
+nombre = "🥈 Leyenda"
+color = "#C0C0C0"
+permisos = []
+
+[[roles]]
+key = "veterano"
+nombre = "🥉 Veterano"
+color = "#CD7F32"
 permisos = []
 
 [[roles]]
@@ -262,6 +321,17 @@ overrides = [
   { objetivo = "administrador", permitir = ["view_channel"] },
 ]
 
+# Aqui el bot crea un canal por ticket abierto (privado: lo ven quien lo abre y el staff).
+[[categorias]]
+key = "cat_tickets"
+nombre = "🎫 » TICKETS"
+orden = 9
+overrides = [
+  { objetivo = "@everyone", denegar = ["view_channel"] },
+  { objetivo = "propietario", permitir = ["view_channel"] },
+  { objetivo = "administrador", permitir = ["view_channel"] },
+]
+
 # --- Plantillas de categorias (descomenta y adapta) ---------------------------------------
 # [[categorias]]
 # key = "cat_juego1"
@@ -277,7 +347,7 @@ overrides = [
 # ]
 
 # =====================================================================
-#  CANALES (17 de texto/anuncios/foros + 2 de voz)
+#  CANALES (19 de texto/anuncios/foros + 2 de voz)
 # =====================================================================
 # --- 📌 » IMPORTANTE (solo lectura) ---
 [[canales]]
@@ -394,8 +464,19 @@ nombre = "❓・ayuda"
 tipo = "forum"
 reemplaza = "ayuda"
 categoria = "cat_desarrollo"
-tema = "¿Tienes una duda? Crea una publicación con tu pregunta."
+tema = "¿Tienes una duda? Crea una publicación con tu pregunta. ¿Algo privado? Abre un ticket en #🎫・soporte."
 orden = 2
+
+# Panel de tickets (lo publica !paneltickets). Solo lectura: se usa el boton, no se escribe.
+[[canales]]
+key = "soporte"
+nombre = "🎫・soporte"
+categoria = "cat_desarrollo"
+tema = "¿Necesitas hablar en privado con el staff? Pulsa el botón del panel para abrir un ticket."
+overrides = [
+  { objetivo = "@everyone", denegar = ["send_messages", "create_public_threads", "send_messages_in_threads"] },
+]
+orden = 3
 
 # --- 🔊 » VOZ (publica) ---
 [[canales]]
@@ -462,11 +543,19 @@ categoria = "cat_staff"
 tema = "Para probar comandos del bot sin molestar."
 orden = 2
 
+# Transcripcion de cada ticket al cerrarlo. Privado como STAFF (el bot se niega a guardar ahi si @everyone lo ve).
+[[canales]]
+key = "tickets_log"
+nombre = "📁・tickets-log"
+categoria = "cat_staff"
+tema = "Transcripciones de los tickets cerrados."
+orden = 3
+
 # [[canales]]
 # key = "staff_chat"
 # nombre = "💬・staff-chat"
 # categoria = "cat_staff"
-# orden = 3
+# orden = 4
 
 # --- Plantilla: una categoria por juego (descomenta junto con [[categorias]] cat_juego1) ---
 # [[canales]]
@@ -538,6 +627,7 @@ descripcion = """¡Bienvenido/a! Para empezar:
 🎨 Enseña lo que haces en {canal:showcase}.
 💻 Scripting de Roblox en {canal:scripting_luau}.
 ❓ ¿Dudas? Crea una publicación en {canal:ayuda}.
+🎫 ¿Algo privado? Abre un ticket en {canal:soporte}.
 📈 Sube de nivel hablando: mira el tuyo con `!nivel` y el ranking con `!top`.
 🎭 Elige tus especialidades y avisos con los botones de abajo."""
 color = "#2ECC71"

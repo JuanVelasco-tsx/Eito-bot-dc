@@ -19,7 +19,7 @@ from profiles.pss_config import ConfigInvalida, cargar, comandos_de_ayuda_inexis
 
 RUTA = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 G_PSS, OTRO = 1420403964746268684, 5
-NUEVOS_BLOQUEADOS = ("steam", "jugar", "perfil", "fundadores", "importarniveles", "darnivel")
+NUEVOS_BLOQUEADOS = ("steam", "jugar", "perfil", "importarniveles", "darnivel")
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ async def test_la_administracion_la_ven_solo_quienes_pueden_usar_esos_comandos(m
     ctx = ctx_de(mod, fakes, G_PSS, permisos=discord.Permissions.all().value)
     ctx.guild.owner_id = ctx.author.id
     await perfil.enviar_ayuda(ctx)
-    assert nombres(ctx) == ["!anuncio", "!exportarserver", "!setxp", "!resetxp"]
+    assert nombres(ctx) == ["!anuncio", "!exportarserver", "!setxp", "!resetxp", "!fundadores"]
 
 
 async def test_solo_ve_los_comandos_que_puede_ejecutar(mod, fakes, perfil):
@@ -267,7 +267,7 @@ def test_el_contenido_inicial_de_la_ayuda_de_pss():
         "🎮 Comunidad": ["ping", "avatar", "serverinfo", "miembros", "nivel", "top"],
         "📊 Utilidad": ["encuesta", "sugerencia"],
         "🛡️ Moderación": ["borrar", "kick", "ban", "mute", "unmute", "warn", "warns", "permitir", "despermitir"],
-        "⚙️ Administración": ["anuncio", "exportarserver", "setxp", "resetxp"],
+        "⚙️ Administración": ["anuncio", "exportarserver", "setxp", "resetxp", "fundadores"],
     }
     assert not {e.comando for s in ayuda.secciones for e in s.entradas} & set(cargar(RUTA).comandos_bloqueados)
     assert [e.solo_moderadores for s in ayuda.secciones for e in s.entradas if e.comando == "warns"] == [True]

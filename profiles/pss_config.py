@@ -8,6 +8,7 @@ errores encontrados (cada uno con la ruta del campo), no solo el primero.
 import difflib
 import re
 import tomllib
+import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -172,6 +173,12 @@ class Bienvenida:
 
 
 @dataclass(frozen=True)
+class Rangos:
+    """[rangos]: los dias para Veterano/Leyenda cuentan desde max(entrada, contar_desde) (UTC)."""
+    contar_desde: dt.datetime | None = None
+
+
+@dataclass(frozen=True)
 class Recursos:
     """[recursos]: clave de un sistema de EITO -> key(s) de [[roles]] / [[canales]] / [[categorias]]."""
     roles: dict = field(default_factory=dict)        # clave -> tuple de keys de rol
@@ -205,6 +212,7 @@ class Config:
     ayuda: Ayuda | None = None
     recursos: Recursos = field(default_factory=Recursos)
     bienvenida: Bienvenida | None = None
+    rangos: Rangos = field(default_factory=Rangos)
 
     def rol(self, key):
         return self._indice.get(("rol", key))
@@ -448,6 +456,29 @@ def _parsear_bienvenida(v, bruto, claves_canales, claves_roles):
     return Bienvenida(titulo, descripcion, v.color(b, "color", "bienvenida", defecto=0x2ECC71))
 
 
+def _parsear_rangos(v, bruto):
+    if bruto is None:
+        return Rangos()
+    r = v.tabla(bruto, "rangos")
+    v.desconocidas(r, {"contar_desde"}, "rangos")
+    valor = r.get("contar_desde")
+    if valor is None:
+        return Rangos()
+    try:
+        if isinstance(valor, dt.datetime):
+            fecha = valor if valor.tzinfo else valor.replace(tzinfo=dt.timezone.utc)
+        elif isinstance(valor, dt.date):
+            fecha = dt.datetime(valor.year, valor.month, valor.day, tzinfo=dt.timezone.utc)
+        elif isinstance(valor, str):
+            fecha = dt.datetime.strptime(valor, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc)
+        else:
+            raise ValueError
+    except ValueError:
+        v.error("rangos.contar_desde", "debe ser una fecha AAAA-MM-DD (UTC), p. ej. \"2026-10-19\"")
+        return Rangos()
+    return Rangos(fecha)
+
+
 def _parsear_recursos(v, bruto, roles, categorias, canales):
     """[recursos.roles|canales|categorias]: cada clave debe ser una que el bot conozca y apuntar a
     una key existente y del tipo correcto (rol, canal de texto o anuncios, categoria)."""
@@ -537,7 +568,7 @@ def parsear(datos):
     """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
     v = _Validador()
     raiz = v.tabla(datos, "(raiz)")
-    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "rangos", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
 
     # --- [perfil] ---
     p = v.tabla(raiz.get("perfil", {}), "perfil")
@@ -698,6 +729,9 @@ def parsear(datos):
     # --- [bienvenida] ---
     bienvenida = _parsear_bienvenida(v, raiz.get("bienvenida"), {c.key for c in canales}, {r.key for r in roles})
 
+    # --- [rangos] ---
+    rangos = _parsear_rangos(v, raiz.get("rangos"))
+
     # --- [recursos] ---
     recursos = _parsear_recursos(v, raiz.get("recursos"), roles, categorias, canales)
 
@@ -785,7 +819,7 @@ def parsear(datos):
         eventos=eventos, comandos_bloqueados=bloqueados,
         roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
         mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda, recursos=recursos,
-        bienvenida=bienvenida,
+        bienvenida=bienvenida, rangos=rangos,
     )
 
 

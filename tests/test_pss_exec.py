@@ -26,15 +26,17 @@ from tests.pss_fakes import (
 RUTA = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 RUTA_V1 = Path(__file__).resolve().parent / "fixtures" / "pss_v1.toml"
 
-CATEGORIAS_FINAL = ["📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF"]
+CATEGORIAS_FINAL = ["📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "🔒 » EQUIPO", "🛡️ » STAFF",
+                    "🎫 » TICKETS"]
 HIJOS_FINAL = {
     "📌 » IMPORTANTE": ["📜・reglas", "👋・bienvenida", "📣・anuncios", "ℹ️・info-estudio"],
     "💬 » COMUNIDAD": ["💬・general", "🙋・presentaciones", "📸・showcase", "💡・sugerencias", "🤖・comandos",
                       "📈・niveles", "🎲・no-relacionado"],
-    "💻 » DESARROLLO": ["🟥・scripting-luau", "❓・ayuda"],
+    "💻 » DESARROLLO": ["🟥・scripting-luau", "❓・ayuda", "🎫・soporte"],
     "🔊 » VOZ": ["🔊 General"],
     "🔒 » EQUIPO": ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"],
-    "🛡️ » STAFF": ["🛡️・registros", "🧪・pruebas-bot"],
+    "🛡️ » STAFF": ["🛡️・registros", "🧪・pruebas-bot", "📁・tickets-log"],
+    "🎫 » TICKETS": [],
 }
 
 
@@ -84,8 +86,8 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
 
     # --- bug de orden: las categorias y canales quedan en el orden del TOML ---
     cats, hijos = orden_actual(srv)
-    assert cats[:6] == CATEGORIAS_FINAL
-    assert cats[6:] == ["Información", "Canales de texto", "Canales de voz"]   # las viejas, abajo
+    assert cats[:len(CATEGORIAS_FINAL)] == CATEGORIAS_FINAL
+    assert cats[len(CATEGORIAS_FINAL):] == ["Información", "Canales de texto", "Canales de voz"]   # las viejas, abajo
     for categoria, esperados in HIJOS_FINAL.items():
         assert hijos[categoria] == esperados
 
@@ -136,6 +138,17 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     niveles = {getattr(e, "id", None): o for e, o in c["📈・niveles"].overwrites.items()}
     assert niveles[G].pair()[1].send_messages is True and BOT in niveles and DEVELOPER not in niveles
     assert c["🧪・pruebas-bot"].overwrites == c["🛡️ » STAFF"].overwrites
+    # Fase 2: tickets privados (categoria y tickets-log), soporte de solo lectura, roles de rango sin permisos
+    tickets = c["🎫 » TICKETS"]
+    t = {getattr(e, "id", None): o for e, o in tickets.overwrites.items()}
+    assert t[G].pair()[1].view_channel is True and BOT in t and DEVELOPER not in t
+    assert c["📁・tickets-log"].overwrites == c["🛡️ » STAFF"].overwrites
+    soporte = {getattr(e, "id", None): o for e, o in c["🎫・soporte"].overwrites.items()}
+    assert soporte[G].pair()[1].send_messages is True and soporte[G].pair()[1].view_channel is False and BOT in soporte
+    for nombre in ("🔥 Activo del mes", "🥇 OG", "🌱 Fundador", "🥈 Leyenda", "🥉 Veterano"):
+        rango = next(r for r in srv.roles if r.name == nombre)
+        assert rango.permissions.value == 0 and not rango.mentionable, nombre
+    assert next(r for r in srv.roles if r.name == "🥇 OG").hoist
     helper = next(r for r in srv.roles if r.name == "Helper")
     novedades = next(r for r in srv.roles if r.name == "🔔 Novedades")
     assert helper.permissions.value == 0 and helper.hoist and not helper.mentionable
@@ -173,7 +186,7 @@ async def test_el_orden_sale_bien_tanto_si_discord_pone_lo_nuevo_arriba_como_aba
         srv.canales_arriba = arriba
         await aplicar(srv, config, guardado)
         cats, hijos = orden_actual(srv)
-        assert cats[:6] == CATEGORIAS_FINAL, arriba
+        assert cats[:len(CATEGORIAS_FINAL)] == CATEGORIAS_FINAL, arriba
         assert hijos == {**hijos, **HIJOS_FINAL}
 
 
@@ -266,7 +279,7 @@ async def test_sin_comunidad_anuncios_y_foro_salen_bloqueados_y_el_resto_se_apli
     assert c["📣・anuncios"].tipo == "news" and c["❓・ayuda"].tipo == "forum"
     plan3 = plan_de(srv, config, guardado, admin=False, permisos=MINIMO_BOT)
     assert [x for x in plan3.acciones if x.op != "omitir"] == []
-    assert orden_actual(srv)[0][:6] == CATEGORIAS_FINAL
+    assert orden_actual(srv)[0][:len(CATEGORIAS_FINAL)] == CATEGORIAS_FINAL
 
 
 # --- Migracion: la version anterior del TOML (v1) -> la nueva ---------------------------------------------------
@@ -292,7 +305,7 @@ async def test_el_bug_de_orden_se_reproduce_con_v1_y_la_nueva_version_lo_arregla
     plan = plan_de(srv, config, guardado)
     assert acciones(plan)["@orden"].op == "actualizar"
     await aplicar(srv, config, guardado)
-    assert orden_actual(srv)[0][:6] == CATEGORIAS_FINAL
+    assert orden_actual(srv)[0][:len(CATEGORIAS_FINAL)] == CATEGORIAS_FINAL
 
 
 async def test_renombrar_un_recurso_ya_mapeado_lo_edita_y_no_crea_un_duplicado(guardado):
@@ -313,7 +326,8 @@ async def test_renombrar_un_recurso_ya_mapeado_lo_edita_y_no_crea_un_duplicado(g
     assert {k for k, x in a.items() if x.op == "crear"} == {
         "info_estudio", "sugerencias", "comandos", "ayuda",                        # de la reorganizacion
         "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades",   # de la Fase 1
-        "msg_presentaciones"}
+        "msg_presentaciones",
+        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log"}                                  # de la Fase 2
 
     await aplicar(srv, config, guardado)
     # los mismos IDs, con los nombres nuevos

@@ -156,9 +156,33 @@ async def test_on_member_join_delega_en_el_perfil_y_no_aplica_el_filtro_de_eito(
 
     original = mod.bot.get_cog
     monkeypatch.setattr(mod.bot, "get_cog", lambda n: AntiFalso() if n == "AntiMulticuentas" else (con_perfil if n == "PerfilPSS" else original(n)))
+    devueltos = []
+
+    async def devolver(m):
+        devueltos.append(m)
+
+    monkeypatch.setattr(mod, "devolver_fundador", devolver)
     miembro = types.SimpleNamespace(guild=object())
     await mod.on_member_join(miembro)
     assert con_perfil.entradas == [miembro]
+    assert devueltos == [miembro]                      # el Fundador que vuelve recupera su rol tambien en PSS
+
+
+async def test_on_member_join_en_pss_no_devuelve_el_fundador_si_el_perfil_expulsa_la_cuenta(mod, con_perfil, monkeypatch):
+    async def expulsa(member):
+        return False
+
+    monkeypatch.setattr(con_perfil, "al_entrar", expulsa)
+    devueltos = []
+
+    async def devolver(m):
+        devueltos.append(m)
+
+    original = mod.bot.get_cog
+    monkeypatch.setattr(mod.bot, "get_cog", lambda n: con_perfil if n == "PerfilPSS" else original(n))
+    monkeypatch.setattr(mod, "devolver_fundador", devolver)
+    await mod.on_member_join(types.SimpleNamespace(guild=object()))
+    assert devueltos == []
 
 
 async def test_on_member_join_en_otro_servidor_sigue_el_camino_de_eito(mod, con_perfil, monkeypatch, fakes):
@@ -369,14 +393,14 @@ def ctx_de(guild, comando):
 
 
 def test_bloqueo_de_comandos_de_eito_solo_en_pss(cog):
-    for nombre in ("setup", "info", "paneltickets", "panelroles", "reglas", "crearvcs",
-                   "steam", "jugar", "perfil", "fundadores", "importarniveles", "darnivel"):
+    for nombre in ("setup", "info", "panelroles", "reglas", "crearvcs",
+                   "steam", "jugar", "perfil", "importarniveles", "darnivel"):
         with pytest.raises(commands.CommandError) as e:
             cog._bloquear_comando(ctx_de(FGuild(G_PSS), nombre))
         assert "no está disponible" in str(e.value)
         assert cog._bloquear_comando(ctx_de(FGuild(OTRO), nombre)) is True    # en EITO siguen igual
     for neutral in ("ping", "kick", "ban", "encuesta", "sugerencia", "ayuda", "warn", "exportarserver",
-                    "nivel", "top", "permitir", "anuncio", "setxp", "resetxp"):
+                    "nivel", "top", "permitir", "anuncio", "setxp", "resetxp", "fundadores", "paneltickets"):
         assert cog._bloquear_comando(ctx_de(FGuild(G_PSS), neutral)) is True
     assert cog._bloquear_comando(types.SimpleNamespace(guild=None, command=None)) is True
 

@@ -415,10 +415,13 @@ async def test_anuncio_en_pss_publica_en_el_canal_mapeado(mod, fakes, perfil):
 
 
 # --- El perfil: metodos del resolvedor y el TOML real -------------------------------------------------------------
-def test_el_toml_real_mapea_anuncios_y_niveles_por_ahora():
+def test_el_toml_real_mapea_los_recursos_de_la_fase_2():
     recursos = cargar(RUTA).recursos
-    assert recursos.canales == {"anuncios": "anuncios", "niveles": "niveles"}
-    assert recursos.roles == {} and recursos.categorias == {}
+    assert recursos.canales == {"anuncios": "anuncios", "niveles": "niveles", "soporte": "soporte",
+                                "transcripciones": "tickets_log"}
+    assert recursos.categorias == {"tickets": "cat_tickets"}
+    assert set(recursos.roles) == {"activo_mes", "fundador", "veterano", "leyenda", "og", "honor",
+                                   "excluidos_activo_mes", "staff_tickets", "ping_tickets"}
 
 
 def test_recompensas_del_perfil_son_ninguna_por_ahora(perfil):
