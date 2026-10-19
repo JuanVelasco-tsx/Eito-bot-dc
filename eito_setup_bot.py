@@ -442,6 +442,86 @@ def evento_permitido(guild, evento):
     return perfil is None or perfil.permite(guild, evento)
 
 
+# --- RESOLVEDOR de roles, canales y categorias de los sistemas de EITO ---
+# En EITO (o sin perfil) devuelve exactamente lo de siempre: los IDs y nombres de las
+# constantes de arriba, leidos al llamar. Si el perfil PSS maneja el servidor, salen de la
+# seccion [recursos] de su TOML (key de [[roles]] / [[canales]] -> ID en perfil_recursos);
+# una clave sin mapear da None / [] y NUNCA se cae a los IDs de EITO.
+IDS_ROLES_EITO = {
+    "activo_mes": lambda: [ROL_ACTIVO_MES_ID],
+    "fundador": lambda: [ROL_FUNDADOR_ID],
+    "veterano": lambda: [ROL_VETERANO_ID],
+    "leyenda": lambda: [ROL_LEYENDA_ID],
+    "og": lambda: [ROL_OG_ID],
+    "voz_activa": lambda: [ROL_VOZ_ACTIVA_ID],
+    "superviviente": lambda: [ROL_SUPERVIVIENTE_ID],
+    "convocador": lambda: [ROL_CONVOCADOR_ID],
+    "developer": lambda: [ROL_DEVELOPER_ID],
+    "honor": lambda: list(ROLES_HONOR_IDS),
+    "excluidos_activo_mes": lambda: [ROL_DEVELOPER_ID],
+    "staff_tickets": lambda: list(ROLES_STAFF_TICKETS),
+    "ping_tickets": lambda: list(ROLES_PING_TICKETS),
+}
+NOMBRES_CANALES_EITO = {
+    "niveles": lambda: CANAL_NIVELES,
+    "logros": lambda: CANAL_LOGROS,
+    "anuncios": lambda: CANAL_ANUNCIOS,
+    "soporte": lambda: CANAL_SOPORTE,
+    "transcripciones": lambda: CANAL_TRANSCRIPCIONES,
+}
+NOMBRES_CATEGORIAS_EITO = {"tickets": lambda: CATEGORIA_TICKETS}
+# Rango por contador -> clave de su rol (los IDs de RANGOS_POR_CONTADOR siguen siendo los de EITO).
+CLAVE_ROL_CONTADOR = {"partidas": "superviviente", "convocatorias_exitosas": "convocador",
+                      "voz_minutos": "voz_activa"}
+
+
+def _perfil_de(guild):
+    """El cog PerfilPSS si maneja `guild`; None en EITO o sin perfil."""
+    perfil = bot.get_cog("PerfilPSS")
+    return perfil if perfil is not None and perfil.maneja(guild) else None
+
+
+def ids_de(guild, clave):
+    """IDs de los roles de `clave` (lista; puede estar vacia en PSS). `guild` puede ser None."""
+    perfil = _perfil_de(guild)
+    return perfil.recurso_ids(clave) if perfil is not None else IDS_ROLES_EITO[clave]()
+
+
+def rol_de(guild, clave):
+    """El rol de `clave` en este servidor, o None."""
+    perfil = _perfil_de(guild)
+    if perfil is not None:
+        return perfil.recurso_rol(guild, clave)
+    return guild.get_role(IDS_ROLES_EITO[clave]()[0])
+
+
+def roles_de(guild, clave):
+    """Los roles de `clave` que existen en el servidor (lista)."""
+    return [rol for rol in (guild.get_role(i) for i in ids_de(guild, clave)) if rol is not None]
+
+
+def canal_de(guild, clave, tolerante=False):
+    """El canal de texto de `clave`, o None. `tolerante`: acepta el nombre con o sin U+FE0F (EITO)."""
+    perfil = _perfil_de(guild)
+    if perfil is not None:
+        return perfil.recurso_canal(guild, clave)
+    nombre = NOMBRES_CANALES_EITO[clave]()
+    return buscar_canal_tolerante(guild, nombre) if tolerante else buscar_canal(guild, nombre)
+
+
+def categoria_de(guild, clave):
+    """La categoria de `clave`, o None."""
+    perfil = _perfil_de(guild)
+    if perfil is not None:
+        return perfil.recurso_categoria(guild, clave)
+    return discord.utils.get(guild.categories, name=NOMBRES_CATEGORIAS_EITO[clave]())
+
+
+def recompensas_de(guild):
+    """(nivel, nombre del rol, color, nombre del canal) de las recompensas por nivel del servidor."""
+    perfil = _perfil_de(guild)
+    return perfil.recompensas(guild) if perfil is not None else NIVEL_RECOMPENSAS
+
 
 # =====================================================================
 #  SERVIDOR WEB INTERNO (webhook HTTP para notificaciones de releases)
@@ -677,7 +757,7 @@ def es_excluido_activo(guild, miembro):
     return (
         miembro.bot
         or miembro.id == guild.owner_id
-        or any(rol.id == ROL_DEVELOPER_ID for rol in miembro.roles)
+        or any(rol.id in ids_de(guild, "excluidos_activo_mes") for rol in miembro.roles)
     )
 
 
@@ -700,7 +780,7 @@ async def registrar_log(guild, texto):
 async def otorgar_recompensas(guild, member, nivel_previo, nivel_nuevo, canal_aviso=None):
     """Da los roles y avisa por cada nivel de NIVEL_RECOMPENSAS cruzado
     entre nivel_previo (exclusivo) y nivel_nuevo (inclusive)."""
-    for nivel_req, nombre_rol, _color, nombre_canal in NIVEL_RECOMPENSAS:
+    for nivel_req, nombre_rol, _color, nombre_canal in recompensas_de(guild):
         if not (nivel_previo < nivel_req <= nivel_nuevo):
             continue
 
@@ -749,7 +829,7 @@ async def sumar_xp(miembro, cantidad, canal_fallback=None):
 
     # Aviso de subida de nivel (en el canal de niveles si existe)
     if nivel_nuevo > nivel_previo:
-        canal_nivel = buscar_canal(guild, CANAL_NIVELES) or canal_fallback
+        canal_nivel = canal_de(guild, "niveles") or canal_fallback
         if canal_nivel is not None:
             try:
                 await canal_nivel.send(
@@ -784,7 +864,9 @@ async def premiar_activo_mes_guild(guild, mes):
     if await mes_ya_premiado(guild.id, mes):
         return
 
-    rol = guild.get_role(ROL_ACTIVO_MES_ID)
+    rol = rol_de(guild, "activo_mes")
+    if rol is None and _perfil_de(guild) is not None:
+        return  # PSS: este rol no esta en [recursos]; el sistema no aplica aqui
     if rol is None:
         # Sin rol no se guarda nada: el mes sigue pendiente hasta que exista.
         print(f"⚠️ [{guild.name}] No existe el rol {ROL_ACTIVO_MES} con ID "
@@ -840,7 +922,7 @@ async def premiar_activo_mes_guild(guild, mes):
         guild.id, mes, [(miembro.id, puesto, xp) for miembro, puesto, xp in ganadores]
     )
 
-    canal = buscar_canal(guild, CANAL_NIVELES)
+    canal = canal_de(guild, "niveles")
     if canal is None:
         print(f"⚠️ [{guild.name}] No encuentro {CANAL_NIVELES} para anunciar el Activo del mes.")
         return
@@ -892,7 +974,7 @@ async def antes_de_premiar_activo_mes():
 def canal_logros(guild):
     """Canal de logros (tolera U+FE0F); si no existe, el canal de niveles; si
     tampoco, None."""
-    return buscar_canal_tolerante(guild, CANAL_LOGROS) or buscar_canal(guild, CANAL_NIVELES)
+    return canal_de(guild, "logros", tolerante=True) or canal_de(guild, "niveles")
 
 
 # Textos del anuncio por rol (clave: ID del rol): (emoji, titulo, frase).
@@ -1003,8 +1085,10 @@ async def actualizar_rangos_guild(guild):
     razon y nunca toca OG ni Fundador.
 
     Devuelve (nuevos_veteranos, nuevas_leyendas) como listas de miembros."""
-    veterano = guild.get_role(ROL_VETERANO_ID)
-    leyenda = guild.get_role(ROL_LEYENDA_ID)
+    veterano = rol_de(guild, "veterano")
+    leyenda = rol_de(guild, "leyenda")
+    if (veterano is None or leyenda is None) and _perfil_de(guild) is not None:
+        return [], []  # PSS: rangos sin mapear en [recursos]; no aplican aqui
     if veterano is None or leyenda is None:
         if (guild.id, "roles") not in avisos_rangos:
             avisos_rangos.add((guild.id, "roles"))
@@ -1094,6 +1178,12 @@ def rol_de_contador(guild, tipo, rol_id):
             avisos_contadores.add((guild.id, tipo, motivo))
             print(f"⚠️ [{guild.name}] Rango de «{tipo}»: {texto}; no se asigna.")
 
+    if _perfil_de(guild) is not None:
+        # PSS: el rol sale de [recursos]; sin mapear, este rango no existe aqui (sin avisos)
+        rol = rol_de(guild, CLAVE_ROL_CONTADOR[tipo])
+        if rol is None:
+            return None
+        rol_id = rol.id
     if not rol_id:
         avisar("sin_id", "el ID del rol está en 0 (ROL_*_ID sin configurar)")
         return None
@@ -1262,17 +1352,18 @@ def dueno_ticket(canal):
 
 def roles_staff_tickets(guild):
     """Roles de ROLES_STAFF_TICKETS que existen en el server."""
-    return [rol for rol in (guild.get_role(i) for i in ROLES_STAFF_TICKETS) if rol is not None]
+    return roles_de(guild, "staff_tickets")
 
 
 def roles_ping_tickets(guild):
     """Roles de ROLES_PING_TICKETS que existen en el server."""
-    return [rol for rol in (guild.get_role(i) for i in ROLES_PING_TICKETS) if rol is not None]
+    return roles_de(guild, "ping_tickets")
 
 
 def es_staff_ticket(miembro):
     """True si el miembro tiene algun rol de ROLES_STAFF_TICKETS."""
-    return any(rol.id in ROLES_STAFF_TICKETS for rol in miembro.roles)
+    ids = ids_de(getattr(miembro, "guild", None), "staff_tickets")
+    return any(rol.id in ids for rol in miembro.roles)
 
 
 def nombre_canal_ticket(usuario):
@@ -1315,7 +1406,7 @@ async def ticket_abrir(interaction):
     tickets_en_creacion.add(clave)
     canal = None
     try:
-        categoria = discord.utils.get(guild.categories, name=CATEGORIA_TICKETS)
+        categoria = categoria_de(guild, "tickets")
         if categoria is None:
             categoria = await guild.create_category(
                 CATEGORIA_TICKETS,
@@ -1415,7 +1506,7 @@ async def ticket_cerrar(interaction):
     tickets_cerrando.add(canal.id)
     try:
         # Sin transcripcion guardada no se borra nada.
-        canal_log = buscar_canal(guild, CANAL_TRANSCRIPCIONES)
+        canal_log = canal_de(guild, "transcripciones")
         if canal_log is None:
             await interaction.followup.send(
                 f"⚠️ No encuentro {CANAL_TRANSCRIPCIONES}, así que no cierro el ticket "
@@ -1610,7 +1701,7 @@ async def on_member_update(before: discord.Member, after: discord.Member):
     antes = {rol.id for rol in before.roles}
     try:
         for rol in after.roles:
-            if rol.id not in antes and rol.id in ROLES_HONOR_IDS:
+            if rol.id not in antes and rol.id in ids_de(after.guild, "honor"):
                 await anunciar_logro(after, rol, "Reconocido por el staff")
     except Exception as e:
         print(f"⚠️ Error anunciando un rol de honor de {after}: {e}")
@@ -1665,7 +1756,7 @@ async def on_member_join(member: discord.Member):
     # (BD, permisos) se registra y no impide la bienvenida.
     try:
         if await get_fundador(guild.id, member.id) is not None:
-            rol_fundador = guild.get_role(ROL_FUNDADOR_ID)
+            rol_fundador = rol_de(guild, "fundador")
             if rol_fundador is not None:
                 await member.add_roles(rol_fundador, reason="Fundador que vuelve")
     except Exception as e:
@@ -1893,7 +1984,7 @@ async def configurar_canal_soporte(ctx):
     """Deja el canal de soporte solo-lectura para @everyone (solo el bot escribe):
     los miembros usan el boton del panel, no escriben ahi."""
     guild = ctx.guild
-    canal = buscar_canal(guild, CANAL_SOPORTE)
+    canal = canal_de(guild, "soporte")
     if canal is None:
         return
     try:
@@ -2002,7 +2093,7 @@ async def configurar_canal_transcripciones(ctx):
     """Oculta el canal de transcripciones de tickets para @everyone y lo deja
     visible solo para ROLES_STAFF_TICKETS (y el bot)."""
     guild = ctx.guild
-    canal = buscar_canal(guild, CANAL_TRANSCRIPCIONES)
+    canal = canal_de(guild, "transcripciones")
     if canal is None:
         return
     try:
@@ -2304,7 +2395,7 @@ async def panelroles_error(ctx, error):
 @commands.has_permissions(administrator=True)
 async def paneltickets(ctx):
     guild = ctx.guild
-    canal = buscar_canal(guild, CANAL_SOPORTE) or ctx.channel
+    canal = canal_de(guild, "soporte") or ctx.channel
     await configurar_canal_soporte(ctx)
     await configurar_canal_transcripciones(ctx)
     embed = discord.Embed(
@@ -2387,7 +2478,7 @@ async def anuncio(ctx, *, texto: str):
     if ping is not None and not cuerpo:
         await ctx.send(USO_ANUNCIO)
         return
-    canal = discord.utils.get(guild.text_channels, name=CANAL_ANUNCIOS)
+    canal = canal_de(guild, "anuncios")
     if canal is None:
         await ctx.send(f"⚠️ No encuentro el canal {CANAL_ANUNCIOS}. Avisa a un admin.")
         return
@@ -2590,7 +2681,7 @@ def es_dueno_o_developer(ctx):
         return False
     return (
         ctx.author.id == ctx.guild.owner_id
-        or any(rol.id == ROL_DEVELOPER_ID for rol in ctx.author.roles)
+        or any(rol.id in ids_de(ctx.guild, "developer") for rol in ctx.author.roles)
     )
 
 
@@ -2798,7 +2889,7 @@ async def fundadores(ctx, confirmar: str = None):
     if await hay_fundadores(guild.id):
         await ctx.send("❌ Los fundadores ya fueron asignados.")
         return
-    rol = guild.get_role(ROL_FUNDADOR_ID)
+    rol = rol_de(guild, "fundador")
     if rol is None:
         await ctx.send(
             f"⚠️ No existe el rol Fundador con ID {ROL_FUNDADOR_ID}; revisa ROL_FUNDADOR_ID."

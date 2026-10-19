@@ -84,6 +84,16 @@ comandos = [
 ]
 
 # =====================================================================
+#  RECURSOS de los sistemas de EITO (xp, tickets, rangos, !anuncio...)
+#  Esos sistemas buscan sus roles y canales por ID o nombre fijos de EITO; aqui se les dice cuales
+#  son los de PSS: clave del sistema = key de [[roles]] / [[canales]] / [[categorias]].
+#  Lo que NO este aqui no existe en PSS (nunca se usan los IDs de EITO), asi que cada sistema se
+#  activa añadiendo sus claves. Claves validas: ver RECURSOS_* en profiles/pss_config.py.
+# =====================================================================
+[recursos.canales]
+anuncios = "anuncios"              # !anuncio publica aqui
+
+# =====================================================================
 #  ROLES (de arriba abajo)
 # =====================================================================
 [[roles]]

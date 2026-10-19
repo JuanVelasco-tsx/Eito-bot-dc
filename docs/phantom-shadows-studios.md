@@ -76,6 +76,7 @@ Tras aplicar, a mano:
 | `[perfil]` | `nombre`, `guild_id`, `owner_id` (solo verificación), `gestores` (keys de roles que pueden usar `!pss`; vacío = solo el dueño) |
 | `[eventos]` | `xp`, `voz`, `anti_multicuentas` (true/false), `rol_al_entrar`, `bienvenida`, `canal_logs` (keys) |
 | `[comandos]` | `bloquear = [...]` comandos de EITO que no funcionan en este servidor |
+| `[recursos]` | `[recursos.roles]`, `[recursos.canales]`, `[recursos.categorias]`: qué rol, canal o categoría de PSS usa cada sistema de EITO (ver «Recursos de los sistemas de EITO» en la sección 5) |
 | `[ayuda]` | `titulo`, `descripcion`, `pie` y `[[ayuda.secciones]]` (`titulo` + `comandos = [{ comando, uso, texto, solo_moderadores }]`): la ayuda de este servidor (ver «Ayuda del servidor» en la sección 5). Cada `comando` debe existir en el bot y no estar en `bloquear`; `texto` admite `{canal:key}` y `{rol:key}` |
 | `[[roles]]` | `key`, `nombre`, `color` (`"#RRGGBB"`), `hoist`, `mentionable`, `permisos` (flags de `discord.Permissions`), `existing_id`, `adoptar`, `permitir_admin`, `autoasignable`, `por_encima_del_bot` (el rol va a mano por encima del bot: el plan no avisa de la jerarquía; lo usa Propietario) |
 | `[[categorias]]` | `key`, `nombre`, `orden`, `existing_id`, `adoptar`, `overrides` |
@@ -191,6 +192,25 @@ use en PSS lee **«Este comando no está disponible en este servidor.»**: los c
 manejador de errores propio (todos salvo `!top`) lo muestran como «❌ Error: …» y `!top`, que no
 tenía manejador y se quedaba mudo, lo responde el perfil. Moderación, `!encuesta`, `!sugerencia`,
 `!ayuda`, `!anuncio`, `!exportarserver`… siguen funcionando (aunque no todos salen en la ayuda).
+
+### Recursos de los sistemas de EITO (`[recursos]`)
+Los sistemas de EITO (XP y niveles, Activo del mes, rangos por antigüedad, tickets, `!anuncio`…)
+buscan sus roles y canales por ID o nombre fijos de EITO. El bot los pide a un resolvedor
+(`rol_de`, `roles_de`, `canal_de`, `categoria_de` en `eito_setup_bot.py`): **en EITO devuelve
+exactamente lo de siempre**; en PSS lo saca de `[recursos]`, que apunta a keys de `[[roles]]`,
+`[[canales]]` y `[[categorias]]` (el ID sale de `perfil_recursos`, no hay que copiar nada).
+
+- **Lo que no esté mapeado no existe en PSS**: nunca se usan los IDs ni los nombres de EITO, y
+  esos sistemas no hacen nada ni avisan en consola. Cada sistema se activa añadiendo sus claves.
+- El validador comprueba que la clave la conozca el bot, que la key exista y que sea del tipo
+  correcto (rol, canal de texto o de anuncios, categoría). Claves: roles `activo_mes`,
+  `fundador`, `veterano`, `leyenda`, `og`, `voz_activa`, `superviviente`, `convocador`,
+  `developer`, `honor`, `excluidos_activo_mes`, `staff_tickets`, `ping_tickets` (las tres últimas
+  y `developer`/`honor` admiten una lista); canales `niveles`, `logros`, `anuncios`, `soporte`,
+  `transcripciones`; categoría `tickets`. Hoy solo está mapeado `anuncios` (para `!anuncio`).
+- `developer` sin mapear (el caso de PSS): `!exportarserver`, `!setxp`, `!resetxp` y
+  `!fundadores` son solo del dueño.
+- Si `logros` no está mapeado, los logros caen al canal de `niveles` (el respaldo de EITO).
 
 ### Ayuda del servidor (`!ayuda`)
 En PSS `!ayuda` no muestra la lista de EITO sino la de la sección `[ayuda]` del TOML (gancho de

@@ -11,6 +11,8 @@ otros loops). El bot principal habla con el cog solo a traves de `bot.get_cog("P
     canal_logs(guild)        canal de logs de moderacion del perfil (o None)
     al_entrar(member)        sustituye al on_member_join de EITO en este servidor
     enviar_ayuda(ctx)        la ayuda de este servidor (sustituye a !ayuda de EITO)
+    recurso_ids/rol/canal/categoria, recompensas
+                             resolvedor de roles y canales de los sistemas de EITO ([recursos])
 
 Todo lo demas (el check que bloquea comandos de EITO y los comandos !pss) solo actua cuando
 guild.id coincide con `guild_id` del TOML.
@@ -189,6 +191,31 @@ class PerfilPSS(commands.Cog):
             return None
         canal = guild.get_channel(self.ids.get(key, 0))
         return canal if isinstance(canal, discord.TextChannel) else None
+
+    # ---- resolvedor ([recursos] del TOML -> IDs de perfil_recursos) ----
+    def recurso_ids(self, clave):
+        """IDs de los roles de `clave` ya creados (vacio si no esta mapeada o aun no existe)."""
+        keys = self.config.recursos.roles.get(clave, ())
+        return [self.ids[k] for k in keys if k in self.ids]
+
+    def recurso_rol(self, guild, clave):
+        ids = self.recurso_ids(clave)
+        return guild.get_role(ids[0]) if ids else None
+
+    def recurso_canal(self, guild, clave):
+        key = self.config.recursos.canales.get(clave)
+        canal = guild.get_channel(self.ids.get(key, 0)) if key else None
+        return canal if isinstance(canal, discord.TextChannel) else None
+
+    def recurso_categoria(self, guild, clave):
+        key = self.config.recursos.categorias.get(clave)
+        categoria = guild.get_channel(self.ids.get(key, 0)) if key else None
+        return categoria if isinstance(categoria, discord.CategoryChannel) else None
+
+    def recompensas(self, guild):
+        """Recompensas por nivel de este servidor: (nivel, nombre del rol, color, nombre del canal).
+        Ninguna por ahora: el TOML aun no las define (EITO usa las suyas, no estas)."""
+        return ()
 
     async def al_entrar(self, member):
         """Sustituye al on_member_join de EITO en el servidor del perfil."""

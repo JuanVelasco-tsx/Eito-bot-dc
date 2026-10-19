@@ -241,6 +241,54 @@ def test_por_encima_del_bot_es_opcional_booleano_y_solo_lo_usa_propietario():
     assert [r.key for r in c.roles if r.por_encima_del_bot] == ["propietario"]
 
 
+# --- [recursos]: claves de los sistemas de EITO -> keys del TOML ---------------------------------------------
+def datos_recursos(**recursos):
+    d = datos()
+    d["canales"].append({"key": "voz", "nombre": "voz", "categoria": "cat_a", "tipo": "voice"})
+    d["recursos"] = recursos
+    return d
+
+
+def test_recursos_validos_y_opcionales():
+    assert parsear(datos()).recursos.roles == {} and parsear(datos()).recursos.canales == {}
+    r = parsear(datos_recursos(
+        roles={"veterano": "miembro", "staff_tickets": ["miembro"], "ping_tickets": ["miembro"]},
+        canales={"niveles": "general", "anuncios": "logs"}, categorias={"tickets": "cat_a"})).recursos
+    assert r.roles == {"veterano": ("miembro",), "staff_tickets": ("miembro",), "ping_tickets": ("miembro",)}
+    assert r.canales == {"niveles": "general", "anuncios": "logs"} and r.categorias == {"tickets": "cat_a"}
+
+
+def test_recursos_clave_desconocida_con_sugerencia():
+    texto = " | ".join(errores_de(datos_recursos(roles={"veteranos": "miembro"}, canales={"nivels": "general"},
+                                                 categorias={"ticket": "cat_a"}, otra={})))
+    assert "recursos.roles.veteranos" in texto and "veterano" in texto
+    assert "recursos.canales.nivels" in texto and "niveles" in texto
+    assert "recursos.categorias.ticket" in texto and "tickets" in texto
+    assert "recursos.otra" in texto and "clave desconocida" in texto
+
+
+def test_recursos_deben_apuntar_a_una_key_existente_y_del_tipo_correcto():
+    texto = " | ".join(errores_de(datos_recursos(
+        roles={"veterano": "fantasma", "og": "general", "fundador": ["miembro", "miembro"]},
+        canales={"niveles": "fantasma", "anuncios": "voz", "soporte": "miembro", "logros": 3},
+        categorias={"tickets": "general"})))
+    assert "'fantasma' no es una key de [[roles]]" in texto           # rol inexistente
+    assert "'general' no es una key de [[roles]]" in texto            # un canal donde va un rol
+    assert "admite un solo rol" in texto                              # lista en una clave de un solo rol
+    assert "'fantasma' no es una key de [[canales]]" in texto
+    assert "es de tipo 'voice'" in texto                              # canal de voz donde va uno de texto
+    assert "'miembro' no es una key de [[canales]]" in texto          # un rol donde va un canal
+    assert "recursos.canales.logros" in texto and "debe ser la key de un canal" in texto
+    assert "'general' no es una key de [[categorias]]" in texto       # un canal donde va una categoria
+
+
+def test_recursos_acepta_un_canal_de_anuncios_y_listas_en_las_claves_que_las_admiten():
+    d = datos_recursos(canales={"anuncios": "anu"}, roles={"honor": ["miembro"], "excluidos_activo_mes": "miembro"})
+    d["canales"].append({"key": "anu", "nombre": "anuncios", "categoria": "cat_a", "tipo": "news"})
+    r = parsear(d).recursos
+    assert r.canales == {"anuncios": "anu"} and r.roles["honor"] == ("miembro",)
+
+
 def test_claves_duplicadas_entre_tipos():
     d = datos()
     d["canales"].append({"key": "miembro", "nombre": "x", "categoria": "cat_a"})

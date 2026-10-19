@@ -35,6 +35,18 @@ LARGO_MENCION = 22         # "<#" + 18 digitos + ">" (estimacion al validar plan
 EVENTOS_BOOL = ("xp", "voz", "anti_multicuentas")
 TIPOS_CANAL = ("text", "voice", "news", "forum")
 TIPOS_CON_MENSAJES = ("text", "news")       # donde el bot puede publicar mensajes
+
+# Claves que el resolvedor del bot (rol_de / roles_de / canal_de / categoria_de en eito_setup_bot.py)
+# acepta en [recursos], con True si admiten VARIOS roles. Un test comprueba que coincide con las
+# tablas del bot. Lo que no este mapeado aqui, en PSS no existe (nunca se usan los IDs de EITO).
+RECURSOS_ROLES = {
+    "activo_mes": False, "fundador": False, "veterano": False, "leyenda": False, "og": False,
+    "voz_activa": False, "superviviente": False, "convocador": False,
+    "developer": True, "honor": True, "excluidos_activo_mes": True,
+    "staff_tickets": True, "ping_tickets": True,
+}
+RECURSOS_CANALES = ("niveles", "logros", "anuncios", "soporte", "transcripciones")
+RECURSOS_CATEGORIAS = ("tickets",)
 REGEX_KEY = re.compile(r"[a-z0-9_]{1,64}")
 REGEX_COLOR = re.compile(r"#?([0-9a-fA-F]{6})")
 REGEX_PLACEHOLDER = re.compile(r"\{(canal|rol):([a-z0-9_]+)\}")
@@ -151,6 +163,14 @@ class Ayuda:
 
 
 @dataclass(frozen=True)
+class Recursos:
+    """[recursos]: clave de un sistema de EITO -> key(s) de [[roles]] / [[canales]] / [[categorias]]."""
+    roles: dict = field(default_factory=dict)        # clave -> tuple de keys de rol
+    canales: dict = field(default_factory=dict)      # clave -> key de canal
+    categorias: dict = field(default_factory=dict)   # clave -> key de categoria
+
+
+@dataclass(frozen=True)
 class Eventos:
     xp: bool = False
     voz: bool = False
@@ -174,6 +194,7 @@ class Config:
     mensajes: tuple
     _indice: dict = field(default_factory=dict, repr=False, compare=False)
     ayuda: Ayuda | None = None
+    recursos: Recursos = field(default_factory=Recursos)
 
     def rol(self, key):
         return self._indice.get(("rol", key))
@@ -391,6 +412,70 @@ def _parsear_ayuda(v, bruto, bloqueados, claves_canales, claves_roles):
     return Ayuda(titulo, descripcion, pie, tuple(secciones))
 
 
+def _parsear_recursos(v, bruto, roles, categorias, canales):
+    """[recursos.roles|canales|categorias]: cada clave debe ser una que el bot conozca y apuntar a
+    una key existente y del tipo correcto (rol, canal de texto o anuncios, categoria)."""
+    if bruto is None:
+        return Recursos()
+    r = v.tabla(bruto, "recursos")
+    v.desconocidas(r, {"roles", "canales", "categorias"}, "recursos")
+    claves_roles = {x.key for x in roles}
+    claves_canales = {x.key: x for x in canales}
+    claves_categorias = {x.key for x in categorias}
+
+    def clave_valida(clave, validas, ruta):
+        if clave not in validas:
+            v.error(f"{ruta}.{clave}", f"clave desconocida{_sugerir(clave, validas)}; el bot conoce: "
+                                       + ", ".join(sorted(validas)))
+            return False
+        return True
+
+    roles_mapa = {}
+    tabla = v.tabla(r.get("roles", {}), "recursos.roles")
+    for clave, valor in tabla.items():
+        ruta = f"recursos.roles.{clave}"
+        if not clave_valida(clave, RECURSOS_ROLES, "recursos.roles"):
+            continue
+        keys = [valor] if isinstance(valor, str) else valor
+        if not isinstance(keys, list) or not keys or not all(isinstance(k, str) for k in keys):
+            v.error(ruta, "debe ser la key de un rol o una lista de keys")
+            continue
+        if len(keys) > 1 and not RECURSOS_ROLES[clave]:
+            v.error(ruta, "esta clave admite un solo rol, no una lista")
+        for k in keys:
+            if k not in claves_roles:
+                v.error(ruta, f"'{k}' no es una key de [[roles]]")
+        roles_mapa[clave] = tuple(keys)
+
+    canales_mapa = {}
+    tabla = v.tabla(r.get("canales", {}), "recursos.canales")
+    for clave, valor in tabla.items():
+        ruta = f"recursos.canales.{clave}"
+        if not clave_valida(clave, RECURSOS_CANALES, "recursos.canales"):
+            continue
+        canal = claves_canales.get(valor) if isinstance(valor, str) else None
+        if not isinstance(valor, str):
+            v.error(ruta, "debe ser la key de un canal")
+        elif canal is None:
+            v.error(ruta, f"'{valor}' no es una key de [[canales]]")
+        elif canal.tipo not in TIPOS_CON_MENSAJES:
+            v.error(ruta, f"'{valor}' es de tipo '{canal.tipo}': debe ser un canal de texto o de anuncios")
+        canales_mapa[clave] = valor
+
+    categorias_mapa = {}
+    tabla = v.tabla(r.get("categorias", {}), "recursos.categorias")
+    for clave, valor in tabla.items():
+        ruta = f"recursos.categorias.{clave}"
+        if not clave_valida(clave, RECURSOS_CATEGORIAS, "recursos.categorias"):
+            continue
+        if not isinstance(valor, str):
+            v.error(ruta, "debe ser la key de una categoria")
+        elif valor not in claves_categorias:
+            v.error(ruta, f"'{valor}' no es una key de [[categorias]]")
+        categorias_mapa[clave] = valor
+    return Recursos(roles_mapa, canales_mapa, categorias_mapa)
+
+
 def comandos_de_ayuda_inexistentes(config, bot):
     """Errores (lista de textos) por cada comando de [ayuda] que el bot no tiene."""
     errores = []
@@ -416,7 +501,7 @@ def parsear(datos):
     """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
     v = _Validador()
     raiz = v.tabla(datos, "(raiz)")
-    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
 
     # --- [perfil] ---
     p = v.tabla(raiz.get("perfil", {}), "perfil")
@@ -574,6 +659,9 @@ def parsear(datos):
     ayuda = _parsear_ayuda(v, raiz.get("ayuda"), bloqueados,
                            {c.key for c in canales}, {r.key for r in roles})
 
+    # --- [recursos] ---
+    recursos = _parsear_recursos(v, raiz.get("recursos"), roles, categorias, canales)
+
     # --- claves unicas globales ---
     indice = {}
     vistas = {}
@@ -657,7 +745,7 @@ def parsear(datos):
         nombre=nombre_perfil, guild_id=guild_id, owner_id=owner_id, gestores=gestores,
         eventos=eventos, comandos_bloqueados=bloqueados,
         roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
-        mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda,
+        mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda, recursos=recursos,
     )
 
 
