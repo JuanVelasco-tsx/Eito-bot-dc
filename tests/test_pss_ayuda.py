@@ -3,6 +3,7 @@
 Se prueba contra el bot REAL de EITO (el modulo importado, sin conectarse a Discord): la ayuda de PSS
 usa can_run de los comandos de verdad, y los comandos bloqueados pasan por sus manejadores .error."""
 
+import logging
 import types
 from pathlib import Path
 
@@ -31,6 +32,19 @@ def sin_bd(monkeypatch):
 
     monkeypatch.setattr(pss_db, "asegurar_tabla", nada)
     monkeypatch.setattr(pss_db, "cargar_mapa", mapa)
+
+
+@pytest.fixture(autouse=True)
+async def con_anti_multicuentas(mod):
+    """!permitir y !despermitir son del cog AntiMulticuentas, que el bot registra en setup_hook: aqui se
+    registra tambien para no depender de que otro test haya corrido setup_hook antes."""
+    from anti_multicuentas import AntiMulticuentas
+    puesto = mod.bot.get_cog("AntiMulticuentas") is None
+    if puesto:
+        await mod.bot.add_cog(AntiMulticuentas(mod.bot, mod.registrar_log))
+    yield
+    if puesto:
+        await mod.bot.remove_cog("AntiMulticuentas")
 
 
 @pytest.fixture
@@ -334,3 +348,81 @@ async def test_pss_ayuda_lista_los_seis_subcomandos_y_solo_para_gestores(mod, fa
         await perfil.cog_check(types.SimpleNamespace(guild=types.SimpleNamespace(id=OTRO), author=corriente))
     dueno = types.SimpleNamespace(id=1, guild=guild, roles=[])
     assert await perfil.cog_check(types.SimpleNamespace(guild=guild, author=dueno)) is True
+
+
+# --- can_run de un comando bloqueado: lo capturan todas las ayudas ---------------------------------------------------
+async def test_can_run_de_un_comando_bloqueado_lanza_commanderror_y_las_dos_ayudas_lo_capturan(mod, fakes, perfil):
+    from profiles.pss_config import EntradaAyuda
+    ctx = ctx_de(mod, fakes, G_PSS, comando="ayuda")
+    with pytest.raises(commands.CommandError):
+        await mod.bot.get_command("steam").can_run(ctx)
+    assert await mod.comando_visible(ctx, "steam") is False                       # la ayuda de EITO
+    assert await perfil._entrada_visible(ctx, EntradaAyuda("steam", "x")) is False    # la de PSS
+    assert await mod.comando_visible(ctx_de(mod, fakes, OTRO, comando="ayuda"), "steam") is True   # en EITO, igual
+    assert len(ctx.respuestas) == 0                                                # sin ruido
+
+
+@pytest.mark.parametrize("quien", ["dueno", "moderador"])
+async def test_ayuda_en_pss_por_el_dueno_y_por_un_moderador_no_falla_ni_muestra_bloqueados(mod, fakes, perfil, quien):
+    import re
+    todos = discord.Permissions.all().value
+    ctx = ctx_de(mod, fakes, G_PSS, permisos=todos if quien == "dueno" else MODERADOR)
+    if quien == "dueno":
+        ctx.guild.owner_id = ctx.author.id
+    await mod.ayuda.callback(ctx)                                  # el comando real, con el gancho: no lanza nada
+    assert len(ctx.respuestas) == 1
+    embed = ctx.respuestas[0][1]["embed"]
+    assert embed.title == "📖 Comandos de Phantom Shadows Studios"
+    texto = " ".join(f.value for f in embed.fields)
+    for bloqueado in perfil.config.comandos_bloqueados:
+        assert not re.search(rf"!{bloqueado}\b", texto), bloqueado
+    assert "no está disponible" not in texto and "Error" not in texto
+    assert ("⚙️ Administración" in [f.name for f in embed.fields]) == (quien == "dueno")
+
+
+# --- el log de errores de comandos: no se ensucia, y el de siempre se mantiene ----------------------------------------
+def registros(caplog):
+    return [(r.name, r.levelno, r.getMessage()) for r in caplog.records if r.name == "discord.ext.commands.bot"]
+
+
+async def test_los_bloqueos_de_pss_no_ensucian_el_log_y_los_demas_errores_se_registran_como_siempre(
+        mod, fakes, perfil, caplog):
+    caplog.set_level(logging.ERROR, logger="discord.ext.commands.bot")
+    ping, steam = mod.bot.get_command("ping"), mod.bot.get_command("steam")
+    assert not ping.has_error_handler() and steam.has_error_handler()
+    fallo = commands.CommandInvokeError(RuntimeError("boom"))
+    bloqueo = PssComandoBloqueado(MSG_NO_DISPONIBLE)
+
+    # Referencia: un bot SIN el perfil (el de siempre) registra un error cualquiera de un comando sin manejador
+    limpio = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+    await limpio.on_command_error(types.SimpleNamespace(command=ping, cog=None), fallo)
+    referencia = registros(caplog)
+    assert referencia == [("discord.ext.commands.bot", logging.ERROR, "Ignoring exception in command ping")]
+    caplog.clear()
+    await limpio.on_command_error(types.SimpleNamespace(command=steam, cog=None), fallo)   # con manejador: nada
+    assert registros(caplog) == []
+    await limpio.close()
+
+    # Con el perfil cargado, el on_command_error por defecto de discord.py no corre (hay un listener)...
+    assert mod.bot.extra_events.get("on_command_error")
+    await mod.bot.on_command_error(types.SimpleNamespace(command=ping, cog=None), fallo)
+    assert registros(caplog) == []
+    # ...y el listener del perfil repite exactamente el mismo registro, solo para lo que no es un bloqueo
+    async def send(*a, **k):
+        raise AssertionError("no debe contestar")
+
+    await perfil.on_command_error(types.SimpleNamespace(command=ping, cog=None, send=send), fallo)
+    assert registros(caplog) == referencia
+    caplog.clear()
+    await perfil.on_command_error(types.SimpleNamespace(command=steam, cog=None, send=send), fallo)   # con manejador
+    assert registros(caplog) == []
+    # Los bloqueos de PSS: ni una linea en el log, con manejador o sin el
+    enviados = []
+
+    async def contesta(texto, **k):
+        enviados.append(texto)
+
+    sin_manejador = types.SimpleNamespace(has_error_handler=lambda: False)
+    await perfil.on_command_error(types.SimpleNamespace(command=steam, cog=None, send=send), bloqueo)
+    await perfil.on_command_error(types.SimpleNamespace(command=sin_manejador, cog=None, send=contesta), bloqueo)
+    assert registros(caplog) == [] and enviados == ["❌ Este comando no está disponible en este servidor."]

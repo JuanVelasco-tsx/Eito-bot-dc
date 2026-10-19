@@ -18,6 +18,7 @@ Todo lo demas (el check que bloquea comandos de EITO y los comandos !pss) solo a
 guild.id coincide con `guild_id` del TOML.
 """
 
+import logging
 import os
 import traceback
 import uuid
@@ -36,6 +37,8 @@ from profiles.pss_exec import (
 )
 from profiles.pss_plan import MENSAJE_COINCIDE, ORDEN_DESPLIEGUE, calcular_plan, lineas_plan
 
+# El logger que usa Bot.on_command_error de discord.py por defecto.
+LOG_COMANDOS = logging.getLogger("discord.ext.commands.bot")
 RUTA_POR_DEFECTO = Path(__file__).with_name("pss.toml")
 TIMEOUT_CONFIRMACION = 60
 COOLDOWN_SEGUNDOS = 30
@@ -279,18 +282,26 @@ class PerfilPSS(commands.Cog):
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        """Un comando bloqueado SIN manejador .error propio (p. ej. !top) no contestaba nada:
-        aqui se avisa. Los que tienen manejador ya responden con str(error), que es este texto."""
-        if not isinstance(error, PssComandoBloqueado):
-            return
+        """Un comando bloqueado SIN manejador .error propio no contestaba nada: aqui se avisa (y no
+        se registra en el log: es un bloqueo esperado). Los que tienen manejador ya responden con
+        str(error), que es este texto.
+
+        OJO: discord.py solo ejecuta su on_command_error por defecto (el que registra «Ignoring
+        exception in command…») si NO hay listeners de command_error. Al haber este, el log por
+        defecto se apagaria para TODO el bot (tambien en EITO); por eso se repite aqui, identico,
+        para cualquier error que no sea un bloqueo."""
         comando = ctx.command
-        if comando is not None and (comando.has_error_handler()
-                                    or (ctx.cog is not None and ctx.cog.has_error_handler())):
+        con_manejador = comando is not None and (
+            comando.has_error_handler() or (ctx.cog is not None and ctx.cog.has_error_handler()))
+        if isinstance(error, PssComandoBloqueado):
+            if not con_manejador:
+                try:
+                    await ctx.send(f"❌ {error}")
+                except discord.HTTPException:
+                    pass
             return
-        try:
-            await ctx.send(f"❌ {error}")
-        except discord.HTTPException:
-            pass
+        if not con_manejador:
+            LOG_COMANDOS.error("Ignoring exception in command %s", comando, exc_info=error)
 
     # ---- ayuda del servidor ----
     def _texto_ayuda(self, texto):
