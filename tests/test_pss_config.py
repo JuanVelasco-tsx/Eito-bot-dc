@@ -155,7 +155,7 @@ def test_sugerencias_usa_el_nombre_exacto_que_busca_el_comando_de_eito(mod):
 def test_las_reglas_son_de_comunidad_publica():
     c = cargar(RUTA_REAL)
     reglas = c.mensaje("msg_reglas").descripcion.lower()
-    for tema in ("respeto", "spam", "publicidad", "código ni assets ajenos", "cada canal", "staff"):
+    for tema in ("respeto", "spam", "publicidad", "creaciones ajenas", "cada canal", "staff"):
         assert tema in reglas
     # #reglas solo tiene las reglas; info, guia y botones van en #info-estudio
     assert [m.key for m in c.mensajes if m.canal == "reglas"] == ["msg_reglas"]

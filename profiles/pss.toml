@@ -671,7 +671,7 @@ canal = "reglas"
 titulo = "📜 Reglas"
 descripcion = """1️⃣ **Respeto ante todo.** Nada de insultos, acoso ni discriminación.
 2️⃣ **Sin spam ni publicidad.** Nada de enlaces sospechosos ni invitaciones a otros servidores sin permiso del staff.
-3️⃣ **No publiques código ni assets ajenos sin permiso** de su autor. Si algo no es tuyo, cita la fuente o no lo subas.
+3️⃣ **Respeta lo que crean otros:** no publiques capturas, arte o creaciones ajenas como si fueran tuyas.
 4️⃣ **Usa cada canal para su tema:** dudas en {canal:ayuda}, tus capturas en {canal:showcase}, ideas en {canal:sugerencias}, comandos del bot en {canal:comandos}, charla libre en {canal:general} y {canal:no_relacionado}.
 5️⃣ **Respeta al staff.** Si no estás de acuerdo con una decisión, habla con ellos por privado.
 6️⃣ **No uses ni compartas exploits o hacks.** Si encuentras un bug, repórtalo en {canal:reportar_bugs}; no lo abuses.
