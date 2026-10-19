@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from profiles.pss_config import ConfigInvalida, cargar, parsear
+from profiles.pss_config import ConfigInvalida, DestinoRelease, cargar, parsear
 
 RUTA_REAL = Path(__file__).resolve().parent.parent / "profiles" / "pss.toml"
 
@@ -50,7 +50,8 @@ def test_el_toml_real_es_valido_y_refleja_lo_acordado():
     assert c.guild_id == 1420403964746268684 and c.owner_id == 668148837579227137
     assert c.gestores == ()
     # PSS es publico: XP encendida (Fase 1), voz apagada y el filtro de cuentas nuevas SI se aplica
-    assert (c.eventos.xp, c.eventos.voz, c.eventos.anti_multicuentas) == (True, False, True)
+    assert (c.eventos.xp, c.eventos.voz, c.eventos.anti_multicuentas) == (True, True, True)
+    assert c.eventos.fundador_automatico is True
     assert c.eventos.rol_al_entrar == "miembro" and c.eventos.canal_logs == "registros"
     assert c.eventos.bienvenida == "bienvenida" and c.canal("bienvenida").categoria == "cat_estudio"
     assert c.canal("registros").categoria == "cat_staff"
@@ -305,7 +306,7 @@ def test_fase_1_roles_nuevos_helper_y_novedades():
 
 def test_fase_1_xp_bienvenida_y_comandos():
     c = cargar(RUTA_REAL)
-    assert c.eventos.xp is True and c.eventos.voz is False
+    assert c.eventos.xp is True and c.eventos.voz is True      # voz: Fase 3
     assert c.recursos.canales["niveles"] == "niveles"
     niveles = c.canal("niveles")
     assert niveles.nombre == "📈・niveles" and niveles.categoria == "cat_comunidad"
@@ -408,6 +409,43 @@ def test_rangos_validacion():
         assert "rangos.contar_desde" in " | ".join(errores_de(d)), malo
     d["rangos"] = {"otra": 1}
     assert "clave desconocida" in " | ".join(errores_de(d))
+
+
+# --- Fase 3: voz activa, webhook con destino, fundador automatico -------------------------------------------
+def test_fase_3_voz_activa_y_webhook_de_pss():
+    c = cargar(RUTA_REAL)
+    voz = c.rol("voz_activa")
+    assert voz.nombre == "🎧 Voz activa" and voz.permisos == () and not voz.autoasignable
+    assert c.recursos.roles["voz_activa"] == ("voz_activa",)
+    assert c.webhook == {"pss": DestinoRelease(canal="anuncios", rol="novedades")}
+    assert c.canal(c.webhook["pss"].canal).tipo == "news" and c.rol(c.webhook["pss"].rol).mentionable
+    # la recompensa por nivel NO se implementa: ni el rol ni el canal de EITO
+    assert c.rol("nivel_10") is None and c.canal("nivel_10") is None
+    assert not any("nivel-10" in x.nombre or "Nivel 10" in x.nombre for x in (*c.canales, *c.roles))
+
+
+def test_webhook_validacion():
+    d = datos()
+    d["canales"].append({"key": "voz", "nombre": "voz", "categoria": "cat_a", "tipo": "voice"})
+    assert parsear(datos()).webhook == {}
+    d["webhook"] = {"pss": {"canal": "general", "rol": "miembro"}}
+    assert parsear(d).webhook["pss"] == DestinoRelease("general", "miembro")
+    d["webhook"] = {"PSS": {"canal": "fantasma", "rol": "nadie"}, "otro": {"canal": "voz", "rol": "miembro", "x": 1},
+                    "vacio": {}}
+    texto = " | ".join(errores_de(d))
+    assert "webhook.PSS" in texto and "minusculas" in texto
+    assert "'fantasma' no es una key de [[canales]]" in texto and "'nadie' no es una key de [[roles]]" in texto
+    assert "es de tipo 'voice'" in texto and "clave desconocida" in texto
+    assert "webhook.vacio.canal: es obligatorio" in texto and "webhook.vacio.rol: es obligatorio" in texto
+
+
+def test_fundador_automatico_es_un_evento_booleano_y_por_defecto_apagado():
+    assert parsear(datos()).eventos.fundador_automatico is False
+    d = datos()
+    d["eventos"]["fundador_automatico"] = True
+    assert parsear(d).eventos.fundador_automatico is True
+    d["eventos"]["fundador_automatico"] = "si"
+    assert errores_de(d)
 
 
 def test_claves_duplicadas_entre_tipos():

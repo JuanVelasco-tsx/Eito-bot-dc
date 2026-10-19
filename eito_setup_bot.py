@@ -34,6 +34,8 @@ from database import (
     guardar_fundadores,
     guardar_ganadores,
     hay_fundadores,
+    listar_fundadores,
+    registrar_fundadores_con_cupo,
     importar_xp_mensual,
     incrementar_contador,
     incrementar_contador_con_tope,
@@ -563,8 +565,24 @@ async def handle_release_webhook(request):
     if not isinstance(changelog, str):
         return web.json_response({"error": "El campo changelog debe ser un texto"}, status=400)
 
+    # Destino (PSS): {"destino": "pss"} publica donde diga el [webhook.pss] del TOML y menciona su rol.
+    # Un destino desconocido (o sin perfil cargado) es un error: nunca cae al canal de EITO.
+    destino = data.get("destino")
+    if destino is not None and not isinstance(destino, str):
+        return web.json_response({"error": "El campo destino debe ser un texto"}, status=400)
+
     canal = None
-    if RELEASE_CHANNEL_ID:
+    rol_destino = None
+    if destino is not None:
+        perfil = bot.get_cog("PerfilPSS")
+        resuelto = perfil.destino_release(destino) if perfil is not None else None
+        if resuelto is None:
+            return web.json_response({"error": f"Destino desconocido: {destino}"}, status=400)
+        canal, rol_destino = resuelto
+        if canal is None:
+            return web.json_response(
+                {"error": f"No se encontro el canal del destino {destino}. Avisa a un admin."}, status=500)
+    elif RELEASE_CHANNEL_ID:
         try:
             canal = bot.get_channel(int(RELEASE_CHANNEL_ID))
             if canal is None:
@@ -582,7 +600,10 @@ async def handle_release_webhook(request):
                 {"error": f"No se encontro el canal {CANAL_MODLOADER}. Avisa a un admin."},
                 status=500)
 
-    rol = discord.utils.get(canal.guild.roles, name=ROL_MODLOADER) if canal.guild else None
+    if destino is not None:
+        rol = rol_destino
+    else:
+        rol = discord.utils.get(canal.guild.roles, name=ROL_MODLOADER) if canal.guild else None
 
     # Limites de Discord para un embed: titulo 256 y descripcion 4096 caracteres.
     embed = discord.Embed(
@@ -1766,6 +1787,28 @@ async def devolver_fundador(member):
         print(f"⚠️ No pude devolver el rol Fundador a {member} en {guild.name}: {e}")
 
 
+async def asignar_fundador_automatico(member):
+    """PSS ([eventos] fundador_automatico): mientras haya menos de MAX_FUNDADORES fundadores guardados,
+    quien entra recibe el rol y se guarda con su puesto. Devuelve el puesto, o None si no hubo cupo.
+
+    El guardado va bajo el candado de la tabla (el mismo que usa `!fundadores confirmar`): aunque entren
+    varios a la vez no se repite puesto ni se pasa del maximo. Sin poder dar el rol no se guarda a nadie."""
+    guild = member.guild
+    try:
+        rol = rol_de(guild, "fundador")
+        if rol is None or guild.me.top_role <= rol:
+            return None
+        entrada = member.joined_at or datetime.now(timezone.utc)
+        puestos = await registrar_fundadores_con_cupo(guild.id, [(member.id, entrada)], MAX_FUNDADORES)
+        puesto = puestos.get(str(member.id))
+        if puesto is not None:
+            await member.add_roles(rol, reason=f"Fundador #{puesto}")
+        return puesto
+    except Exception as e:
+        print(f"⚠️ No pude asignar el Fundador automatico a {member} en {guild.name}: {e}")
+        return None
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     """Da la bienvenida y asigna el rol automatico cuando entra alguien."""
@@ -1775,6 +1818,8 @@ async def on_member_join(member: discord.Member):
     if perfil is not None and perfil.maneja(member.guild):
         if await perfil.al_entrar(member) is not False:     # False = la cuenta se expulso
             await devolver_fundador(member)
+            if perfil.permite(member.guild, "fundador_automatico"):
+                await asignar_fundador_automatico(member)
         return
     # Anti-multicuentas: si la cuenta es demasiado nueva se expulsa y no recibe
     # rol ni bienvenida.
@@ -2924,7 +2969,14 @@ async def fundadores(ctx, confirmar: str = None):
     if confirmar is not None and confirmar.lower() != "confirmar":
         await ctx.send("❌ Uso: `!fundadores [confirmar]`")
         return
-    if await hay_fundadores(guild.id):
+    # PSS: convive con la asignacion automatica de quien entra; en vez de cerrarse con el primero,
+    # completa hasta MAX_FUNDADORES con los miembros actuales que aun no son fundadores.
+    auto = _perfil_de(guild) is not None
+    guardados = await listar_fundadores(guild.id) if auto else {}
+    if auto and len(guardados) >= MAX_FUNDADORES:
+        await ctx.send(f"❌ Ya hay {MAX_FUNDADORES} fundadores.")
+        return
+    if not auto and await hay_fundadores(guild.id):
         await ctx.send("❌ Los fundadores ya fueron asignados.")
         return
     rol = rol_de(guild, "fundador")
@@ -2938,10 +2990,12 @@ async def fundadores(ctx, confirmar: str = None):
     if not guild.chunked:
         await guild.chunk()
     candidatos = sorted(
-        (m for m in guild.members if not m.bot and m.joined_at is not None),
+        (m for m in guild.members
+         if not m.bot and m.joined_at is not None and str(m.id) not in guardados),
         key=lambda m: (m.joined_at, m.id),
     )
-    elegidos = candidatos[:MAX_FUNDADORES]
+    elegidos = candidatos[:MAX_FUNDADORES - len(guardados)]
+    base = max(guardados.values(), default=0)      # los puestos siguen a los ya guardados
     if not elegidos:
         await ctx.send("❌ No encuentro miembros para asignar.")
         return
@@ -2951,11 +3005,11 @@ async def fundadores(ctx, confirmar: str = None):
         def linea(puesto, m):
             return f"**#{puesto}** {m.mention} — {fecha_corta(m.joined_at)}"
         if len(elegidos) <= 15:
-            partes = ["\n".join(linea(i, m) for i, m in enumerate(elegidos, 1))]
+            partes = ["\n".join(linea(i, m) for i, m in enumerate(elegidos, base + 1))]
         else:
-            primeros = "\n".join(linea(i, m) for i, m in enumerate(elegidos[:10], 1))
+            primeros = "\n".join(linea(i, m) for i, m in enumerate(elegidos[:10], base + 1))
             ultimos = "\n".join(
-                linea(i, m) for i, m in enumerate(elegidos[-5:], len(elegidos) - 4)
+                linea(i, m) for i, m in enumerate(elegidos[-5:], base + len(elegidos) - 4)
             )
             partes = [f"**Primeros 10**\n{primeros}", f"**Últimos 5**\n{ultimos}"]
         embed = discord.Embed(
@@ -2980,9 +3034,15 @@ async def fundadores(ctx, confirmar: str = None):
         )
         return
 
-    await guardar_fundadores(
-        guild.id, [(m.id, puesto, m.joined_at) for puesto, m in enumerate(elegidos, 1)]
-    )
+    if auto:
+        # Bajo el candado de la tabla: no se pasa del maximo ni repite puesto aunque entre alguien a la vez
+        puestos = await registrar_fundadores_con_cupo(
+            guild.id, [(m.id, m.joined_at) for m in elegidos], MAX_FUNDADORES)
+        elegidos = [m for m in elegidos if str(m.id) in puestos]
+    else:
+        await guardar_fundadores(
+            guild.id, [(m.id, puesto, m.joined_at) for puesto, m in enumerate(elegidos, 1)]
+        )
     dados = ya_tenian = fallos = 0
     for m in elegidos:
         if rol in m.roles:

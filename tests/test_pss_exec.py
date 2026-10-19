@@ -327,7 +327,8 @@ async def test_renombrar_un_recurso_ya_mapeado_lo_edita_y_no_crea_un_duplicado(g
         "info_estudio", "sugerencias", "comandos", "ayuda",                        # de la reorganizacion
         "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades",   # de la Fase 1
         "msg_presentaciones",
-        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log"}                                  # de la Fase 2
+        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log",                                 # de la Fase 2
+        "voz_activa"}                                                    # de la Fase 3
 
     await aplicar(srv, config, guardado)
     # los mismos IDs, con los nombres nuevos

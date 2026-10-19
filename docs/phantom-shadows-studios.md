@@ -36,10 +36,12 @@ La tabla `perfil_recursos` se crea sola al cargar el perfil (no existe si el per
    (Developer, y donde quieras que queden los nuevos). Hoy comparte la posición 1 con
    Developer. Los roles nuevos se crean *por debajo* del rol del bot.
 2. **(b) `!pss plan`** y revisa el resultado; luego **`!pss aplicar`**. Basta el entero mínimo de
-   permisos **`1099780189270`** (Ajustes del servidor → Roles → *EITO Setup Bot*; no hace falta
+   permisos **`1099780320342`** (Ajustes del servidor → Roles → *EITO Setup Bot*; no hace falta
    reinvitar): **no hace falta ser administrador**. Equivale a: Ver canales, Enviar mensajes,
    Insertar enlaces, Leer historial, Adjuntar archivos, Añadir reacciones, Gestionar mensajes,
-   Gestionar canales, Gestionar roles, Expulsar, Banear y Moderar miembros.
+   Gestionar canales, Gestionar roles, Expulsar, Banear, Moderar miembros y **Mencionar
+   @everyone, @here y todos los roles** (hace falta para el ping de los tickets y para
+   `!anuncio everyone`; el bot nunca lo usa con texto de usuarios, ver más abajo).
 3. **(c) Solo si el plan marca «bloqueado: el bot no tiene X»** (p. ej. al crear un rol con
    permisos que el bot no tiene, como el Administrador con «Gestionar servidor»), dale ese
    permiso un momento y repite `!pss aplicar`; después vuelve al entero mínimo.
@@ -50,19 +52,15 @@ Con el entero mínimo, el plan marca **«bloqueado: el bot no tiene X»** cualqu
 cosa que requiera un permiso que el bot no posee (p. ej. crear un rol con `manage_guild`). Lo
 que ya existe y no necesita cambios sigue en «omitir».
 
-**¿Cubre el entero mínimo lo que necesitan los tickets?** Casi. Crear el canal de un ticket en la
-categoría (Gestionar canales), darle permisos a la persona y al staff (Gestionar roles; solo se
-conceden permisos que el bot tiene: ver canal, escribir, leer historial y adjuntar, todos incluidos),
-publicar el embed (Insertar enlaces), leer el historial y adjuntar la transcripción (Leer historial y
-Adjuntar archivos) y borrar el canal (Gestionar canales) están cubiertos. **Falta uno: «Mencionar
-@everyone, @here y todos los roles» (`mention_everyone`, +131072)**, que hace falta para que el
-ping a Propietario y Administrador al abrir un ticket *notifique* (esos roles no son
-mencionables). Sin él el mensaje se envía pero nadie recibe el aviso. Opciones: (A) añadírselo al
-bot (entero `1099780320342`; también hace falta para `!anuncio everyone`/`here`), o (B) marcar
-esos dos roles como `mentionable = true` en el TOML (cualquiera podría mencionarlos). Hasta que
-elijas, los tickets funcionan sin notificación. Comprueba además, con un ticket de prueba, que se
-crea con Propietario por encima del bot: en principio los overrides de canal no dependen de la
-jerarquía de roles, pero no lo he podido probar contra Discord.
+**¿Cubre el entero mínimo lo que necesitan los tickets?** Sí. Crear y borrar el canal del ticket
+(Gestionar canales), darle permisos a la persona y al staff (Gestionar roles; solo se conceden permisos
+que el bot tiene), el embed (Insertar enlaces), la transcripción (Leer historial y Adjuntar archivos) y
+el ping a Propietario y Administrador (Mencionar @everyone, @here y todos los roles; esos roles no son
+mencionables). **Ese último permiso no abre menciones masivas**: solo decide si una mención
+*notifica* cuando el envío la permite con `allowed_mentions`, y el bot nace con `everyone=False` y
+`roles=False`. Los únicos envíos que piden más (webhook, `!jugar`, ping de tickets y `!anuncio
+everyone`) son una lista cerrada con test (`tests/test_menciones_masivas.py`), y ninguno lleva texto
+de usuarios en el `content`.
 
 **Activar la XP (Fase 1) — orden exacto.** `xp = true` rige desde el deploy, y los avisos de nivel
 salen en `📈・niveles`, que crea `!pss aplicar`. Por eso:
@@ -237,13 +235,14 @@ ayuda de Administración para quien pueda usarlos. `!fundadores` y `!panelticket
 habilitados: `!fundadores` sale en la ayuda de Administración.
 
 ### Rangos, Fundador, Activo del mes y tickets (Fase 2)
+(La recompensa por nivel —rol 🔓 Nivel 10 y su canal— **no se implementa en PSS** por ahora: no hay
+recompensas por nivel y cruzar el nivel 10 solo da el aviso de nivel.)
 - **Roles** (sin permisos): `🌱 Fundador`, `🥉 Veterano`, `🥈 Leyenda`, `🥇 OG` (honor: lo da el staff a
   mano y se anuncia) y `🔥 Activo del mes`. Todos mapeados en `[recursos.roles]`.
 - **Veterano y Leyenda** (90 y 180 días, solo tiempo, sin nivel): cada 6 h. Los días cuentan desde
   `max(entrada, [rangos].contar_desde)`: con `2026-10-19`, **nadie sube de golpe** por haber entrado
   antes. `!antiguedad` usa la misma cuenta. El primer ascenso será ~90 días después de esa fecha.
-- **Fundador**: `!fundadores` (vista previa) y `!fundadores confirmar` dan 🌱 a los 100 primeros miembros
-  (una sola vez; hoy serían todos); el que se va y vuelve recupera su rol (también en PSS).
+- **Fundador**: ver «Fundador automático» (Fase 3) más abajo; el que se va y vuelve recupera su rol.
 - **Activo del mes**: el primer día de cada mes (UTC) premia el top 3 de XP del mes anterior, **sin
   contar** al dueño, a los bots ni al rol Developer (`excluidos_activo_mes`). Con 0 candidatos
   elegibles no publica nada ni da error (reintenta cada hora).
@@ -256,6 +255,76 @@ habilitados: `!fundadores` sale en la ayuda de Administración.
   Administrador; al cerrarlo la transcripción va a `📁・tickets-log` (STAFF). En PSS
   `!paneltickets` **no reconfigura los permisos** de soporte ni de tickets-log: son los del TOML y
   el plan los mantiene. Si la categoría aún no existe, el botón avisa de que falta `!pss aplicar`.
+
+### Voz activa, webhook de releases y Fundador automático (Fase 3)
+**🎧 Voz activa** (`voz = true`, rol `voz_activa` en `[recursos]`). Usa exactamente las constantes de
+EITO: **50 horas (3000 min)** para el rol y un **tope de 6 h al día** que cuentan por persona (día
+contable en UTC-5; ticks de 5 min). Al activar `voz` se enciende, y solo esto:
+- cada 5 minutos, quien esté en un canal de voz (menos el AFK) **con al menos otra persona** que no
+  esté ensordecida ni sea un bot suma 5 min a su contador de voz (tabla `contadores`);
+- esos minutos dan **XP por voz** (1 XP por minuto, la misma XP del mensaje: sube niveles, avisa en
+  `📈・niveles` y cuenta para el Activo del mes), porque `xp = true`;
+- al llegar a 3000 min se da 🎧 Voz activa y se anuncia en `📈・niveles`; un respaldo cada 6 h se lo
+  da a quien ya lo alcanzó. Los contadores de L4D2 (partidas, convocatorias) no se mapean y no hacen nada.
+Antes de activarla, vacía los contadores de voz de antes del perfil (los `DELETE` de la sección 2
+ya incluyen `contadores`).
+
+**Webhook de releases con destino.** `POST /release-webhook` acepta `"destino": "pss"` además de
+`version` y `changelog`: publica en el canal y menciona al rol del `[webhook.pss]` del TOML
+(`#📣・anuncios` y `🔔 Novedades`). Sin `destino` todo va como siempre a EITO. Un destino
+desconocido, o con el perfil sin cargar, responde **400** y no publica en ninguna parte (nunca cae al
+canal de EITO); si el destino existe pero su canal aún no se ha creado, **500**. Otro destino =
+otra tabla `[webhook.<nombre>]` (`canal` y `rol` son keys del TOML).
+
+Configurarlo en la organización `Phantom-Shadows-Studios` (sirve también para repos privados):
+1. **Secreto**: Settings de la organización → Secrets and variables → Actions → *New organization
+   secret* `RELEASE_WEBHOOK_SECRET` con el mismo valor que la variable de Railway. En
+   «Repository access» elige *All repositories* (o los que quieras).
+2. **Variable**: en la misma pantalla, pestaña *Variables* → `EITO_WEBHOOK_URL` = la URL pública del
+   bot en Railway **sin barra final**, p. ej. `https://tu-app.up.railway.app`.
+3. En cada repositorio, `.github/workflows/avisar-release.yml`:
+   ```yaml
+   name: Avisar release a Discord
+   on:
+     release:
+       types: [published]
+   jobs:
+     avisar:
+       runs-on: ubuntu-latest
+       steps:
+         - name: Enviar aviso
+           env:
+             URL: ${{ vars.EITO_WEBHOOK_URL }}
+             SECRETO: ${{ secrets.RELEASE_WEBHOOK_SECRET }}
+             VERSION: ${{ github.event.release.tag_name }}
+             CUERPO: ${{ github.event.release.body }}
+           run: |
+             jq -n --arg version "$VERSION" --arg changelog "${CUERPO:-Sin changelog.}" --arg destino pss \
+               '{version: $version, changelog: $changelog, destino: $destino}' \
+             | curl --fail-with-body -sS -X POST "$URL/release-webhook" \
+                 -H "Authorization: Bearer $SECRETO" -H "Content-Type: application/json" --data @-
+   ```
+   El texto del release pasa por variables de entorno (no se interpola en el script) y `jq` lo escapa,
+   así que un changelog con comillas o saltos de línea no rompe nada. `curl --fail-with-body` hace
+   fallar el job si el bot responde 400/500 y muestra el motivo. Para probar: `curl` a mano con el
+   mismo cuerpo, o crear un release de prueba en un repo.
+4. **Si la organización está en el plan gratuito**, los secretos de organización pueden no estar
+   disponibles para repositorios *privados*: en ese caso crea el secreto y la variable en el propio
+   repositorio (Settings → Secrets and variables → Actions); el workflow es el mismo.
+
+**Fundador automático** (`[eventos] fundador_automatico = true`). Quien entra (no bot, no expulsado
+por el anti-multicuentas) recibe 🌱 Fundador y se guarda en `fundadores` con su puesto, **mientras haya
+menos de 100 guardados; al llegar a 100 se cierra solo**. Sin poder dar el rol (no existe o el bot
+queda por debajo) no se guarda a nadie. Convive con `!fundadores confirmar` así:
+- En PSS `confirmar` ya **no se cierra con el primero**: completa la lista con los miembros actuales
+  que aún no son fundadores (los más antiguos primero), hasta 100 en total, y los puestos siguen a los
+  ya guardados. Si ya hay 100, responde «Ya hay 100 fundadores».
+- Ambos guardan bajo un **candado por servidor** en PostgreSQL (`pg_advisory_xact_lock`) y calculan el
+  puesto dentro de la misma transacción: aunque entren varias personas a la vez o alguien ejecute
+  `confirmar` mientras tanto, **no se repite ningún puesto ni se pasa de 100** (probado con entradas
+  simultáneas contra PostgreSQL real).
+- La vista previa (`!fundadores`) numera a partir de los puestos ya usados.
+- En EITO nada cambia: `confirmar` guarda a los 100 primeros y se cierra para siempre.
 
 ### Recursos de los sistemas de EITO (`[recursos]`)
 Los sistemas de EITO (XP y niveles, Activo del mes, rangos por antigüedad, tickets, `!anuncio`…)

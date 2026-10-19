@@ -12,7 +12,7 @@ from profiles.pss_plan import (
 )
 
 G, BOT, DUENO = 100, 900, 777
-MINIMO_BOT = 1099780189270   # entero minimo de permisos acordado para el bot
+MINIMO_BOT = 1099780320342   # entero minimo de permisos acordado para el bot
 
 
 def config(**cambios):
@@ -305,7 +305,7 @@ def test_aviso_de_roles_nuevos_bajo_el_bot_menciona_propietario():
 def test_el_reporte_incluye_el_orden_de_despliegue():
     for paso in ("a)", "b)", "c)", "d)"):
         assert paso in ORDEN_DESPLIEGUE
-    assert "1099780189270" in ORDEN_DESPLIEGUE and "omitir" in ORDEN_DESPLIEGUE
+    assert "1099780320342" in ORDEN_DESPLIEGUE and "omitir" in ORDEN_DESPLIEGUE
 
 
 # --- mensajes -------------------------------------------------------------------------------------------

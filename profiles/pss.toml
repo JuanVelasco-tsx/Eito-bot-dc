@@ -27,7 +27,8 @@ gestores = []                      # keys de roles que pueden usar !pss ademas d
 
 [eventos]
 xp = true                          # XP por mensajes, niveles y !nivel / !top (avisos en 📈・niveles)
-voz = false                        # sin XP ni contadores por voz
+voz = true                         # XP y contadores por voz (🎧 Voz activa a las 50 h, tope 6 h al dia, como en EITO)
+fundador_automatico = true         # quien entra recibe 🌱 Fundador mientras haya menos de 100 (ver !fundadores)
 anti_multicuentas = true           # servidor publico: se aplica el filtro de cuentas nuevas de EITO
 rol_al_entrar = "miembro"          # key del rol que se da al entrar
 bienvenida = "bienvenida"          # key del canal de bienvenida ("" = ninguno); texto en [bienvenida]
@@ -132,6 +133,7 @@ fundador = "fundador"              # !fundadores y el fundador que vuelve
 veterano = "veterano"              # rangos por antiguedad (solo tiempo)
 leyenda = "leyenda"
 og = "og"                          # honor: lo da el staff a mano
+voz_activa = "voz_activa"          # 50 h en voz (3000 min), con tope de 6 h al dia
 honor = ["og"]                     # roles de honor: al darlos a mano se anuncia el logro
 excluidos_activo_mes = ["developer"]   # no ganan el Activo del mes (el dueño y los bots, siempre)
 staff_tickets = ["propietario", "administrador"]   # ven y cierran los tickets
@@ -144,6 +146,12 @@ anuncios = "anuncios"              # !anuncio publica aqui
 niveles = "niveles"                # avisos de nivel, logros y Activo del mes
 soporte = "soporte"                # donde !paneltickets publica el panel
 transcripciones = "tickets_log"    # transcripcion de cada ticket al cerrarlo
+
+# Webhook de releases: POST /release-webhook con {"destino": "pss", "version": ..., "changelog": ...}
+# publica aqui y menciona al rol. Sin "destino" el aviso va a donde siempre (EITO).
+[webhook.pss]
+canal = "anuncios"
+rol = "novedades"
 
 [recursos.categorias]
 tickets = "cat_tickets"            # donde se crean los canales de ticket
@@ -209,6 +217,12 @@ key = "og"
 nombre = "🥇 OG"
 color = "#FFD700"
 hoist = true
+permisos = []
+
+[[roles]]
+key = "voz_activa"
+nombre = "🎧 Voz activa"
+color = "#3498DB"
 permisos = []
 
 [[roles]]

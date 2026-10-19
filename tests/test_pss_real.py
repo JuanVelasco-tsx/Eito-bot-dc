@@ -19,6 +19,7 @@ from tests.pss_fakes import (
 )
 FASE0 = Path(__file__).resolve().parent / "fixtures" / "pss_fase0.toml"     # los pss.toml ya desplegados
 FASE1 = Path(__file__).resolve().parent / "fixtures" / "pss_fase1.toml"
+FASE2 = Path(__file__).resolve().parent / "fixtures" / "pss_fase2.toml"
 
 from tests.test_pss_exec import (  # noqa: F401  (guardado es un fixture)
     CATEGORIAS_FINAL, HIJOS_FINAL, MINIMO_BOT, RUTA, acciones, guardado, plan_de, por_nombre,
@@ -74,7 +75,7 @@ def test_plan_real_con_comunidad(real):
     a = acciones(plan)
     assert {k for k, x in a.items() if x.op == "crear"} == {
         "info_estudio", "sugerencias", "comandos", "ayuda", "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper", "novedades", "msg_presentaciones",
-        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log"}
+        "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log", "voz_activa"}
     assert [x for x in plan.acciones if x.op == "bloqueado"] == []
     assert {k for k, x in a.items() if x.op == "omitir"} == {
         "propietario", "administrador", "developer", "colaborador", "miembro", "scripter", "builder", "ui",
@@ -105,7 +106,7 @@ def test_plan_real_sin_comunidad(real):
     assert "activa Comunidad" in a["anuncios"].razon and "activa Comunidad" in a["ayuda"].razon
     assert {k for k, x in a.items() if x.op == "crear"} == {
         "info_estudio", "sugerencias", "comandos", "bienvenida", "presentaciones", "niveles", "pruebas_bot", "helper",
-        "novedades", "msg_presentaciones", "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log"}
+        "novedades", "msg_presentaciones", "activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log", "voz_activa"}
     texto = "\n".join(lineas_plan(plan))
     assert "reemplazado" not in texto and "Categoría «📢 Anuncios»" not in texto     # anuncios sigue ahi
     assert "Categoría «🟥 Roblox»: queda **vacía**" in texto
@@ -191,13 +192,13 @@ async def test_adoptar_de_un_canal_que_el_dueno_borro_no_lo_recrea(real):
     assert res.fallos == []
 
 
-# --- Fase 2 sobre lo DESPLEGADO: el estado real + los pss.toml de las Fases 0 y 1 aplicados --------------------------
+# --- Fase 3 sobre lo DESPLEGADO: el estado real + los pss.toml de las Fases 0, 1 y 2 aplicados -----------------------
 @pytest.fixture
 async def desplegado(real):
-    """PSS tal como esta hoy: el export real al que se le aplicaron los pss.toml de la Fase 0 y la Fase 1
+    """PSS tal como esta hoy: el export real al que se le aplicaron los pss.toml de las Fases 0, 1 y 2
     (en cada paso el plan, con el bot en permisos minimos, da «coincide»)."""
     srv, estado = real
-    for ruta in (FASE0, FASE1):
+    for ruta in (FASE0, FASE1, FASE2):
         config = cargar(ruta)
         plan, res = await aplicar_real(srv, config, estado)
         assert res.fallos == [] and res.bloqueadas == []
@@ -205,36 +206,24 @@ async def desplegado(real):
     return srv, estado
 
 
-async def test_plan_de_la_fase_2_sobre_lo_desplegado(desplegado):
+async def test_plan_de_la_fase_3_sobre_lo_desplegado(desplegado):
     srv, estado = desplegado
     plan = plan_de(srv, cargar(RUTA), estado)
     a = acciones(plan)
-    assert {k for k, x in a.items() if x.op == "crear"} == {"activo_mes", "og", "fundador", "leyenda", "veterano", "cat_tickets", "soporte", "tickets_log"}
-    assert {k for k, x in a.items() if x.op == "actualizar"} == {"ayuda", "msg_guia", "@orden"}
-    assert "#🎫・soporte" in a["ayuda"].cambios["tema"]                       # el tema del foro enlaza al soporte
-    assert [x for x in plan.acciones if x.op == "bloqueado"] == [] and not plan.coincide()
-    assert {k for k, x in a.items() if x.op == "omitir"} >= {"reglas", "anuncios", "general", "niveles", "registros"}
-    assert not any("rol del bot no está por encima de «Propietario»" in w for w in plan.advertencias)
+    assert {k for k, x in a.items() if x.op == "crear"} == {"voz_activa"}        # solo el rol: nada de Nivel 10
+    assert [k for k, x in a.items() if x.op in ("actualizar", "vincular", "bloqueado")] == []
+    assert not plan.coincide() and "voz_activa" in {x.key for x in plan.acciones if x.op == "crear"}
 
 
-async def test_aplicar_la_fase_2_sobre_lo_desplegado_deja_el_servidor_coincidiendo(desplegado):
+async def test_aplicar_la_fase_3_sobre_lo_desplegado_deja_el_servidor_coincidiendo(desplegado):
     srv, estado = desplegado
     config = cargar(RUTA)
     _, res = await aplicar_real(srv, config, estado)
     assert res.fallos == [] and res.bloqueadas == []
     await comprobar_orden(srv)
-    c = por_nombre(srv)
-    assert c["🎫・soporte"].tipo == "text" and c["📁・tickets-log"].tipo == "text"
-    assert c["🎫・soporte"].category_id == c["💻 » DESARROLLO"].id and c["📁・tickets-log"].category_id == c["🛡️ » STAFF"].id
-    assert [x for x in srv.canales.values() if x.category_id == c["🎫 » TICKETS"].id] == []   # vacia hasta el primer ticket
-    for rango in ("🔥 Activo del mes", "🥇 OG", "🌱 Fundador", "🥈 Leyenda", "🥉 Veterano"):
-        assert any(r.name == rango for r in srv.roles), rango
-    # la guia menciona el canal de soporte; el mensaje ya publicado se EDITA (mismo ID), no se republica ni se borra nada
-    guia = list(c["ℹ️・info-estudio"].mensajes.values())[1]
-    assert f"<#{c['🎫・soporte'].id}>" in guia.embed.description
-    assert not any("mensaje antiguo del bot borrado" in h for h in res.hechos)
-    assert c["❓・ayuda"].topic.endswith("#🎫・soporte.")
-    # con el bot en el minimo de permisos, el plan da todo en omitir (y el aviso de «coincide»)
+    rol = next(r for r in srv.roles if r.name == "🎧 Voz activa")
+    assert rol.permissions.value == 0 and not rol.mentionable and rol.id == estado["voz_activa"].discord_id
+    assert not any("Nivel 10" in r.name for r in srv.roles) and not any("nivel-10" in c.name for c in srv.canales.values())
     plan = plan_de(srv, config, estado, admin=False, permisos=MINIMO_BOT)
     assert plan.coincide(), "\n".join(lineas_plan(plan))
     llamadas = list(srv.llamadas)

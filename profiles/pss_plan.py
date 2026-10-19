@@ -31,7 +31,7 @@ ORDEN_DESPLIEGUE = (
     "**Orden de despliegue**\n"
     "0) Activa Comunidad (anuncios y foros la exigen; sin ella salen «bloqueado»).\n"
     "a) Sube el rol del bot por encima de los roles que va a gestionar.\n"
-    "b) `!pss aplicar`: basta el entero mínimo de permisos `1099780189270` (no hace falta ser administrador).\n"
+    "b) `!pss aplicar`: basta el entero mínimo de permisos `1099780320342` (no hace falta ser administrador).\n"
     "c) Solo si el plan marca «bloqueado: el bot no tiene X» (p. ej. al crear un rol con permisos que el bot "
     "no tiene), dale ese permiso un momento y repite; después vuelve al entero mínimo.\n"
     "d) `!pss plan` otra vez: debe dar todo en «omitir»."

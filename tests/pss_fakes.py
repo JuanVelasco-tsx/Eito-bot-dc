@@ -16,7 +16,7 @@ from profiles.pss_plan import SCanal, SMiembro, SRol, Snapshot, bits
 
 G, BOT, DUENO = 1420403964746268684, 900, 668148837579227137
 DEVELOPER = 1561497283315638312
-MINIMO_BOT = 1099780189270
+MINIMO_BOT = 1099780320342
 
 _TIPOS = {
     "categoria": discord.ChannelType.category, "text": discord.ChannelType.text,

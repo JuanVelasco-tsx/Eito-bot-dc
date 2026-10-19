@@ -11,6 +11,7 @@ otros loops). El bot principal habla con el cog solo a traves de `bot.get_cog("P
     canal_logs(guild)        canal de logs de moderacion del perfil (o None)
     al_entrar(member)        sustituye al on_member_join de EITO en este servidor
     enviar_ayuda(ctx)        la ayuda de este servidor (sustituye a !ayuda de EITO)
+    destino_release(nombre)  (canal, rol) de un aviso de release del webhook, o None si no existe
     inicio_rangos(fecha)     desde cuando cuentan los dias de un miembro para los rangos por antiguedad
     recurso_ids/rol/canal/categoria, recompensas
                              resolvedor de roles y canales de los sistemas de EITO ([recursos])
@@ -190,7 +191,7 @@ class PerfilPSS(commands.Cog):
 
     def permite(self, guild, evento):
         """False solo si `guild` es el del perfil y el TOML apaga `evento`."""
-        if not self.maneja(guild) or evento not in ("xp", "voz", "anti_multicuentas"):
+        if not self.maneja(guild) or evento not in ("xp", "voz", "anti_multicuentas", "fundador_automatico"):
             return True
         return getattr(self.config.eventos, evento)
 
@@ -221,6 +222,18 @@ class PerfilPSS(commands.Cog):
         key = self.config.recursos.categorias.get(clave)
         categoria = guild.get_channel(self.ids.get(key, 0)) if key else None
         return categoria if isinstance(categoria, discord.CategoryChannel) else None
+
+    def destino_release(self, destino):
+        """Destino de un aviso de release del webhook: None si el TOML no lo define; (canal, rol) si lo
+        define (alguno puede ser None si aun no existe o el servidor no esta en cache)."""
+        cfg = self.config.webhook.get(str(destino).strip().lower())
+        if cfg is None:
+            return None
+        guild = self.bot.get_guild(self.config.guild_id)
+        if guild is None:
+            return None, None
+        canal = guild.get_channel(self.ids.get(cfg.canal, 0))
+        return (canal if isinstance(canal, discord.TextChannel) else None), guild.get_role(self.ids.get(cfg.rol, 0))
 
     def inicio_rangos(self, fecha):
         """La mas tardia entre la fecha de entrada y `[rangos] contar_desde` (sin la segunda, la primera)."""

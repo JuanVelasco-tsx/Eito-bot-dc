@@ -268,7 +268,8 @@ async def test_si_el_perfil_falla_el_bot_arranca_igual(mod, arranque, monkeypatc
 def test_maneja_y_permite(cog):
     pss_guild, otro = FGuild(G_PSS), FGuild(OTRO)
     assert cog.maneja(pss_guild) and not cog.maneja(otro) and not cog.maneja(None)
-    assert cog.permite(pss_guild, "xp") is True and cog.permite(pss_guild, "voz") is False   # XP: Fase 1
+    assert cog.permite(pss_guild, "xp") is True and cog.permite(pss_guild, "voz") is True    # XP: Fase 1, voz: Fase 3
+    assert cog.permite(pss_guild, "fundador_automatico") is True
     assert cog.permite(pss_guild, "anti_multicuentas") is True       # PSS es publico: el filtro se aplica
     assert cog.permite(otro, "xp") is True and cog.permite(otro, "anti_multicuentas") is True
     assert cog.permite(pss_guild, "lo_que_sea") is True
@@ -614,7 +615,7 @@ async def test_pss_plan_envia_el_reporte_con_el_orden_de_despliegue(cog, monkeyp
     await cog.plan.callback(cog, ctx)
     embeds = [kw["embed"] for _c, kw in ctx.enviados]
     assert "no se tocó nada" in embeds[0].title
-    assert "1099780189270" in embeds[-1].fields[0].value and "d)" in embeds[-1].fields[0].value
+    assert "1099780320342" in embeds[-1].fields[0].value and "d)" in embeds[-1].fields[0].value
 
 
 @pytest.mark.parametrize("otras", [[Accion("rol", "x", "bloqueado", "X", razon="r")],

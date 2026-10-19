@@ -420,7 +420,7 @@ def test_el_toml_real_mapea_los_recursos_de_la_fase_2():
     assert recursos.canales == {"anuncios": "anuncios", "niveles": "niveles", "soporte": "soporte",
                                 "transcripciones": "tickets_log"}
     assert recursos.categorias == {"tickets": "cat_tickets"}
-    assert set(recursos.roles) == {"activo_mes", "fundador", "veterano", "leyenda", "og", "honor",
+    assert set(recursos.roles) == {"activo_mes", "fundador", "veterano", "leyenda", "og", "honor", "voz_activa",
                                    "excluidos_activo_mes", "staff_tickets", "ping_tickets"}
 
 

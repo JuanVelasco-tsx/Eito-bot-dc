@@ -10,7 +10,7 @@ import os
 
 from sqlalchemy import (
     BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint,
-    and_, delete, func, select, update,
+    and_, delete, func, select, text, update,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
@@ -513,6 +513,47 @@ async def guardar_fundadores(guild_id, lista):
         stmt = stmt.on_conflict_do_nothing(index_elements=["guild_id", "user_id"])
         await session.execute(stmt)
         await session.commit()
+
+
+async def listar_fundadores(guild_id) -> dict:
+    """{user_id (texto): puesto} de los fundadores guardados del servidor."""
+    async with SessionLocal() as session:
+        resultado = await session.execute(
+            select(Fundador.user_id, Fundador.puesto).where(Fundador.guild_id == str(guild_id))
+        )
+        return {user_id: puesto for user_id, puesto in resultado.all()}
+
+
+async def registrar_fundadores_con_cupo(guild_id, lista, maximo) -> dict:
+    """Guarda fundadores NUEVOS sin pasar de `maximo` en total. `lista` = [(user_id, joined_at), ...] en
+    orden de prioridad. Cada uno recibe el siguiente puesto libre (max + 1); quien ya estaba guardado se
+    salta. Todo bajo un candado por servidor (pg_advisory_xact_lock): dos entradas simultaneas, o un
+    `!fundadores confirmar` a la vez, nunca repiten puesto ni se pasan del maximo.
+
+    Devuelve {user_id (texto): puesto} de los guardados ahora."""
+    async with SessionLocal() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:clave))"), {"clave": f"fundadores:{guild_id}"}
+            )
+            filas = await session.execute(
+                select(Fundador.user_id, Fundador.puesto).where(Fundador.guild_id == str(guild_id))
+            )
+            existentes = {user_id: puesto for user_id, puesto in filas.all()}
+            puesto = max(existentes.values(), default=0)
+            libres = maximo - len(existentes)
+            nuevos = {}
+            for user_id, joined_at in lista:
+                uid = str(user_id)
+                if libres <= 0:
+                    break
+                if uid in existentes or uid in nuevos:
+                    continue
+                puesto += 1
+                libres -= 1
+                session.add(Fundador(guild_id=str(guild_id), user_id=uid, puesto=puesto, joined_at=joined_at))
+                nuevos[uid] = puesto
+        return nuevos
 
 
 async def get_fundador(guild_id, user_id):

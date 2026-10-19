@@ -33,7 +33,7 @@ MAX_BOTONES = 25
 MAX_ETIQUETA_BOTON = 80
 LARGO_MENCION = 22         # "<#" + 18 digitos + ">" (estimacion al validar plantillas)
 
-EVENTOS_BOOL = ("xp", "voz", "anti_multicuentas")
+EVENTOS_BOOL = ("xp", "voz", "anti_multicuentas", "fundador_automatico")
 TIPOS_CANAL = ("text", "voice", "news", "forum")
 TIPOS_CON_MENSAJES = ("text", "news")       # donde el bot puede publicar mensajes
 
@@ -173,6 +173,13 @@ class Bienvenida:
 
 
 @dataclass(frozen=True)
+class DestinoRelease:
+    """[webhook.<destino>]: a donde va un aviso de release cuando el POST trae {"destino": "<destino>"}."""
+    canal: str      # key de [[canales]]
+    rol: str        # key de [[roles]] que se menciona
+
+
+@dataclass(frozen=True)
 class Rangos:
     """[rangos]: los dias para Veterano/Leyenda cuentan desde max(entrada, contar_desde) (UTC)."""
     contar_desde: dt.datetime | None = None
@@ -191,6 +198,7 @@ class Eventos:
     xp: bool = False
     voz: bool = False
     anti_multicuentas: bool = False
+    fundador_automatico: bool = False      # quien entra recibe 🌱 Fundador mientras haya menos de 100
     rol_al_entrar: str = ""
     bienvenida: str = ""
     canal_logs: str = ""
@@ -213,6 +221,7 @@ class Config:
     recursos: Recursos = field(default_factory=Recursos)
     bienvenida: Bienvenida | None = None
     rangos: Rangos = field(default_factory=Rangos)
+    webhook: dict = field(default_factory=dict)      # destino -> DestinoRelease
 
     def rol(self, key):
         return self._indice.get(("rol", key))
@@ -456,6 +465,29 @@ def _parsear_bienvenida(v, bruto, claves_canales, claves_roles):
     return Bienvenida(titulo, descripcion, v.color(b, "color", "bienvenida", defecto=0x2ECC71))
 
 
+def _parsear_webhook(v, bruto, canales, claves_roles):
+    if bruto is None:
+        return {}
+    w = v.tabla(bruto, "webhook")
+    destinos = {}
+    for nombre, cfg in w.items():
+        ruta = f"webhook.{nombre}"
+        if not REGEX_COMANDO.fullmatch(nombre):
+            v.error(ruta, "el nombre del destino va en minusculas ([a-z0-9_])")
+        d = v.tabla(cfg, ruta)
+        v.desconocidas(d, {"canal", "rol"}, ruta)
+        canal = v.texto(d, "canal", ruta, requerido=True)
+        rol = v.texto(d, "rol", ruta, requerido=True)
+        if canal and canal not in canales:
+            v.error(f"{ruta}.canal", f"'{canal}' no es una key de [[canales]]")
+        elif canal and canales[canal].tipo not in TIPOS_CON_MENSAJES:
+            v.error(f"{ruta}.canal", f"'{canal}' es de tipo '{canales[canal].tipo}': debe ser un canal de texto o de anuncios")
+        if rol and rol not in claves_roles:
+            v.error(f"{ruta}.rol", f"'{rol}' no es una key de [[roles]]")
+        destinos[nombre] = DestinoRelease(canal, rol)
+    return destinos
+
+
 def _parsear_rangos(v, bruto):
     if bruto is None:
         return Rangos()
@@ -568,7 +600,7 @@ def parsear(datos):
     """Valida el dict del TOML y devuelve un Config; lanza ConfigInvalida si hay errores."""
     v = _Validador()
     raiz = v.tabla(datos, "(raiz)")
-    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "rangos", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
+    v.desconocidas(raiz, {"perfil", "eventos", "comandos", "ayuda", "recursos", "bienvenida", "rangos", "webhook", "roles", "categorias", "canales", "mensajes"}, "(raiz)")
 
     # --- [perfil] ---
     p = v.tabla(raiz.get("perfil", {}), "perfil")
@@ -732,6 +764,9 @@ def parsear(datos):
     # --- [rangos] ---
     rangos = _parsear_rangos(v, raiz.get("rangos"))
 
+    # --- [webhook.<destino>] ---
+    webhook = _parsear_webhook(v, raiz.get("webhook"), {c.key: c for c in canales}, {r.key for r in roles})
+
     # --- [recursos] ---
     recursos = _parsear_recursos(v, raiz.get("recursos"), roles, categorias, canales)
 
@@ -819,7 +854,7 @@ def parsear(datos):
         eventos=eventos, comandos_bloqueados=bloqueados,
         roles=tuple(roles), categorias=tuple(categorias), canales=tuple(canales),
         mensajes=tuple(mensajes), _indice=indice, ayuda=ayuda, recursos=recursos,
-        bienvenida=bienvenida, rangos=rangos,
+        bienvenida=bienvenida, rangos=rangos, webhook=webhook,
     )
 
 
