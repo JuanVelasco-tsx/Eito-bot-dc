@@ -135,6 +135,46 @@ def test_mover_y_sincronizar_son_explicitos():
     assert accion(calcular_plan(c, snap(canales=canales), {}, {}), "front").op == "vincular"
 
 
+# --- adoptar = «ya existe»: lo que no aparece NO se crea --------------------------------------------
+def test_adoptar_con_nombre_actual_que_no_existe_sale_bloqueado_y_no_crea_nada():
+    c = config(canales=[{"key": "front", "nombre": "🎨・frontend", "nombre_actual": "frontend", "adoptar": True,
+                         "categoria": "cat_pub"}],
+               mensajes=[{"key": "msg", "canal": "front", "titulo": "Hola"}])
+    plan = calcular_plan(c, snap(canales=[SCanal(21, "otro", "text")]), {}, {})
+    a = accion(plan, "front")
+    assert a.op == "bloqueado" and a.razon.startswith("no encontrado (adoptar)")
+    assert "bloqueado: no encontrado (adoptar)" in "\n".join(lineas_plan(plan))
+    assert not [x for x in plan.acciones if x.tipo == "canal" and x.op == "crear"]      # nada que crear
+    assert accion(plan, "msg").op == "bloqueado"                                          # y su mensaje espera
+    # tampoco por existing_id: un ID que no esta en el servidor
+    c = config(canales=[{"key": "front", "nombre": "frontend", "adoptar": True, "existing_id": 999,
+                         "categoria": "cat_pub"}], mensajes=[])
+    assert accion(calcular_plan(c, snap(), {}, {}), "front").op == "bloqueado"
+
+
+def test_adoptar_que_no_existe_bloquea_tambien_roles_y_categorias_y_arrastra_a_sus_canales():
+    c = config(roles=[{"key": "fantasma", "nombre": "Fantasma", "adoptar": True}],
+               categorias=[{"key": "cat_vieja", "nombre": "Vieja", "orden": 1, "adoptar": True}],
+               canales=[{"key": "dentro", "nombre": "dentro", "categoria": "cat_vieja"}], mensajes=[])
+    plan = calcular_plan(c, snap(), {}, {})
+    assert ops(plan)["fantasma"] == "bloqueado" and accion(plan, "fantasma").razon.startswith("no encontrado (adoptar)")
+    assert ops(plan)["cat_vieja"] == "bloqueado"
+    assert ops(plan)["dentro"] == "bloqueado" and "depende de la categoría" in accion(plan, "dentro").razon
+
+
+def test_lo_que_no_es_adoptar_o_lo_creo_el_bot_si_se_crea_aunque_falte():
+    # sin adoptar: se crea (el caso normal)
+    c = config(canales=[{"key": "nuevo", "nombre": "nuevo", "categoria": "cat_pub"}], mensajes=[])
+    assert ops(calcular_plan(c, snap(), {}, {}))["nuevo"] == "crear"
+    # con adoptar pero creado antes por el bot (alguien lo borro a mano): se vuelve a crear
+    c = config(canales=[{"key": "nuevo", "nombre": "nuevo", "adoptar": True, "categoria": "cat_pub"}], mensajes=[])
+    estado = {"nuevo": Registro("canal", 321, creado=True)}
+    assert ops(calcular_plan(c, snap(), estado, {}))["nuevo"] == "crear"
+    # con adoptar y presente (por nombre): se vincula como siempre
+    plan = calcular_plan(c, snap(canales=[SCanal(21, "nuevo", "text")]), {}, {})
+    assert ops(plan)["nuevo"] in ("vincular", "actualizar")
+
+
 def test_canal_ya_movido_y_sincronizado_da_omitir():
     cat = SCanal(30, "Privada", "categoria", overwrites={G: (0, 1024)})
     canal = SCanal(21, "frontend", "text", 30, overwrites={G: (0, 1024)})

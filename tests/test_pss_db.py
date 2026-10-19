@@ -116,7 +116,7 @@ async def test_aplicar_de_punta_a_punta_con_la_bd_real_y_plan_posterior_en_omiti
         resultado = await ejecutar(srv, plan, config, {}, lambda keys: object())
         assert resultado.fallos == []
         guardado = await pss_db.cargar_mapa(G)
-        assert guardado["propietario"].creado and guardado["frontend"].tipo == "canal"
+        assert guardado["propietario"].creado and guardado["general"].tipo == "canal"
         assert guardado["msg_reglas"].hash and guardado["msg_reglas"].canal_id
         plan2 = calcular_plan(config, foto(srv, admin=False, permisos=MINIMO_BOT), guardado,
                               estado_mensajes(srv, config, guardado))

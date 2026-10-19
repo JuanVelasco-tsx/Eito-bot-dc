@@ -30,7 +30,7 @@ CATEGORIAS_FINAL = ["📌 » IMPORTANTE", "💬 » COMUNIDAD", "💻 » DESARROL
 HIJOS_FINAL = {
     "📌 » IMPORTANTE": ["📜・reglas", "📣・anuncios", "ℹ️・info-estudio"],
     "💬 » COMUNIDAD": ["💬・general", "📸・showcase", "💡・sugerencias", "🤖・comandos", "🎲・no-relacionado"],
-    "💻 » DESARROLLO": ["🟥・scripting-luau", "🎨・frontend", "⚙️・backend", "❓・ayuda"],
+    "💻 » DESARROLLO": ["🟥・scripting-luau", "❓・ayuda"],
     "🔊 » VOZ": ["🔊 General"],
     "🔒 » EQUIPO": ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"],
     "🛡️ » STAFF": ["🛡️・registros"],
@@ -94,8 +94,11 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     assert c["💬・general"].tipo == "text" and c["🔊 General"].tipo == "voice"
     # existentes: renombrados SIN crear duplicados (mismos IDs de siempre)
     for ident, nombre in {21: "💬・general", 24: "🎲・no-relacionado", 20: "📌・info-importante",
-                          23: "🗓️・planificación-de-sesiones", 25: "🎨・frontend", 26: "⚙️・backend"}.items():
+                          23: "🗓️・planificación-de-sesiones"}.items():
         assert srv.canales[ident].name == nombre
+    # #frontend y #backend ya no estan en el TOML: el bot no los toca (siguen donde estaban)
+    assert srv.canales[25].name == "frontend" and srv.canales[26].name == "backend"
+    assert srv.canales[25].category_id == 11 and srv.canales[26].category_id == 11
     assert srv.canales[20].topic is None                                     # no se cambia su tema
     assert srv.canales[30].name == "Reuniones"                                # sin renombrar
     # el #deberes-ayuda original no se toca: el foro es uno nuevo
@@ -117,7 +120,7 @@ async def test_aplicar_crea_lo_que_falta_y_el_plan_posterior_da_todo_omitir(guar
     for n in ("📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"):
         assert c[n].category is equipo and c[n].overwrites == equipo.overwrites
     # Publicas: sin overrides
-    for n in ("💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "💬・general", "🎨・frontend", "❓・ayuda", "🔊 General"):
+    for n in ("💬 » COMUNIDAD", "💻 » DESARROLLO", "🔊 » VOZ", "💬・general", "❓・ayuda", "🔊 General"):
         assert c[n].overwrites == {}
     # IMPORTANTE: solo lectura para @everyone; escriben developer y administrador (+ bot)
     importante = c["📌 » IMPORTANTE"]
@@ -286,7 +289,7 @@ async def test_renombrar_un_recurso_ya_mapeado_lo_edita_y_no_crea_un_duplicado(g
     ids_antes = {k: guardado[k].discord_id for k in
                  ("cat_estudio", "cat_comunidad", "cat_desarrollo", "cat_voz", "cat_equipo", "cat_staff",
                   "reglas", "anuncios", "showcase", "scripting_luau", "voz_general", "registros",
-                  "general", "no_relacionado", "info_importante", "planificacion_sesiones", "frontend", "backend")}
+                  "general", "no_relacionado", "info_importante", "planificacion_sesiones")}
     plan = plan_de(srv, config, guardado)
     a = acciones(plan)
     # el plan EDITA lo ya mapeado (mismo destino_id) y solo crea lo realmente nuevo

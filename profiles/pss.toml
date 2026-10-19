@@ -258,26 +258,6 @@ tema = "Scripting en Luau."
 mover = true
 orden = 1
 
-# [PENDIENTE DE CONFIRMAR] Los emojis de #frontend y #backend. Si no los quieres, quita
-# `nombre_actual` y `adoptar` y pon nombre = "frontend" / "backend".
-[[canales]]
-key = "frontend"
-nombre = "🎨・frontend"
-nombre_actual = "frontend"
-adoptar = true
-categoria = "cat_desarrollo"
-mover = true
-orden = 2
-
-[[canales]]
-key = "backend"
-nombre = "⚙️・backend"
-nombre_actual = "backend"
-adoptar = true
-categoria = "cat_desarrollo"
-mover = true
-orden = 3
-
 # FORO nuevo. Un canal de texto no se convierte en foro, asi que se crea uno nuevo y el
 # #ayuda actual NO se toca: el plan lo lista como "reemplazado, archívalo o bórralo a mano".
 # Requiere Comunidad.
@@ -288,7 +268,7 @@ tipo = "forum"
 reemplaza = "ayuda"
 categoria = "cat_desarrollo"
 tema = "¿Tienes una duda? Crea una publicación con tu pregunta."
-orden = 4
+orden = 2
 
 # --- 🔊 » VOZ (publica) ---
 [[canales]]
@@ -422,7 +402,7 @@ descripcion = """¡Bienvenido/a! Para empezar:
 📜 Lee {canal:reglas}.
 💬 Preséntate en {canal:general}.
 🎨 Enseña lo que haces en {canal:showcase}.
-💻 Programación en {canal:frontend} y {canal:backend}; Roblox en {canal:scripting_luau}.
+💻 Scripting de Roblox en {canal:scripting_luau}.
 ❓ ¿Dudas? Crea una publicación en {canal:ayuda}.
 🎭 Elige tus especialidades con los botones de abajo."""
 color = "#2ECC71"

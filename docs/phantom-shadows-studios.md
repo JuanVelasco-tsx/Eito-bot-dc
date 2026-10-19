@@ -56,7 +56,7 @@ Tras aplicar, a mano:
   `#info-importante` y `#planificación-de-sesiones` se mueven allí **y se sincronizan** con la
   categoría, igual que el canal de voz `🔊 Reuniones`, así que pasan a ser privados: quien no tenga
   «Developer», «Colaborador» o «Administrador» dejará de verlos.
-  `!pss plan` avisa de a quién afecta. (`#frontend` y `#backend` son públicos: no afecta a nadie.)
+  `!pss plan` avisa de a quién afecta.
 - **Borra o archiva a mano lo que el plan lista en «🧹 A mano»:** las categorías que quedan
   vacías (`📢 Anuncios`, `🟥 Roblox`, `🛠️ Soporte`) y el `#ayuda` de texto antiguo, que queda
   **reemplazado** por el foro `❓・ayuda` (el bot no lo toca ni lo borra; `🛠️ Soporte` queda vacía
@@ -96,10 +96,15 @@ Tras aplicar, a mano:
   mapeado) **edita el mismo recurso** (mismo ID), nunca crea un duplicado. Un recurso que ya
   existía y no creó el bot necesita `adoptar = true` (y `nombre_actual` para encontrarlo por su
   nombre de hoy).
+- **`adoptar` significa «ya existe, úsalo».** Si el recurso no aparece (ni por ID guardado, ni por
+  `existing_id`, ni por nombre) el plan lo marca **«bloqueado: no encontrado (adoptar)»** y **no crea
+  uno nuevo**, para que borrar un canal a mano no lo resucite con otro ID. Quita `adoptar` si quieres
+  que se cree. (Si lo creó el bot antes y alguien lo borró, sí se vuelve a crear.)
 - **Orden.** Las categorías quedan en el orden de `orden` y, dentro de cada una, los canales en el
   `orden` del TOML (texto/anuncios/foros primero, voz después, como los muestra Discord). Discord
   pone cada categoría o canal nuevo **arriba**, así que el plan incluye una acción «orden» que lo
-  corrige con una sola petición cuando hace falta.
+  corrige con una sola petición cuando hace falta. Las categorías que no están en el TOML (las que quedan vacías) se quedan
+  **debajo**, en su orden relativo de siempre.
 - **Un rol con `administrator` exige `permitir_admin = true`.** El rol Propietario no lo tiene.
 - El validador comprueba: flags de permisos, claves desconocidas o duplicadas, referencias a
   roles/canales/categorías inexistentes, y los límites de Discord (250 roles, 500 canales,
@@ -157,7 +162,7 @@ canal `🛡️・registros` de Staff; deja categorías y canales en el orden del
 - No publica proyectos: la organización no tiene repositorios públicos
   (consulta del 2026-10-18). Los canales de proyecto irán en 🔒 Equipo y el mensaje de
   «proyectos activos» están **comentados** en el TOML como ejemplo; no se publica texto de relleno.
-- Estructura pequeña a propósito: 15 canales de texto, anuncios y foros (máximo 16) y 2 de voz.
+- Estructura pequeña a propósito: 13 canales de texto, anuncios y foros (máximo 16) y 2 de voz.
   Lo demás está comentado en el TOML como plantilla: `#staff-chat`, canales de proyecto, **una
   categoría por juego** (`🎮 » [JUEGO]` con noticias = news, códigos, sugerencias y bug-report =
   foro) y **`🗄️ » ARCHIVO`** (solo lectura para todos).
@@ -199,8 +204,9 @@ está disponible en Phantom Shadows Studios». Moderación, `!encuesta`, `!suger
   termina) pero la aplicación continúa; repetir `!pss aplicar` es seguro.
 - Los 5 miembros actuales dejarán de ver `#info-importante`, `#planificación-de-sesiones` y
   `🔊 Reuniones` (pasan a 🔒 Equipo) hasta recibir «Colaborador», «Developer» o «Administrador».
-- **Pendiente de confirmar:** los emojis de `#🎨・frontend` y `#⚙️・backend` (renombrar canales
-  existentes). Si no los quieres, quita `nombre_actual` y `adoptar` de esas dos entradas.
+- `#frontend` y `#backend` se **quitaron del TOML**: el dueño los borró a propósito del servidor.
+  Sus filas en `perfil_recursos` quedan huérfanas y no molestan (puedes borrarlas con
+  `!pss olvidar frontend` / `backend`).
 - `#💡・sugerencias` debe llamarse **exactamente** así: es el nombre que busca `!sugerencia` de EITO.
 - Convertir `#anuncios` a canal de anuncios y crear el foro necesitan Comunidad (paso 0).
 - El orden usa la misma petición interna que `Channel.move()` de discord.py (una sola llamada
@@ -210,7 +216,7 @@ está disponible en Phantom Shadows Studios». Moderación, `!encuesta`, `!suger
 
 ## 8. Estructura resultante
 
-Visibilidad y quién escribe en cada categoría (15 canales de texto, anuncios y foros + 2 de voz). «Existente» =
+Visibilidad y quién escribe en cada categoría (13 canales de texto, anuncios y foros + 2 de voz). «Existente» =
 ya estaba en el servidor; «del bot» = lo creó el perfil antes. Los existentes se renombran con
 `adoptar = true` + `nombre_actual` (solo el nombre; nunca se cambia su tema). Las categorías
 `📢 Anuncios`, `🟥 Roblox` y `🛠️ Soporte` desaparecen del TOML: sus canales se mueven y quedan
@@ -229,8 +235,6 @@ vacías (a borrar a mano); `📌 Estudio` se reutiliza y pasa a llamarse `📌 �
   └─ 🎲・no-relacionado     existente (no-relacionado), se renombra
 💻 » DESARROLLO   [👁️ ven: todos · escriben: todos]
   ├─ 🟥・scripting-luau     del bot, se renombra y se mueve desde 🟥 Roblox
-  ├─ 🎨・frontend           existente, se renombra   [PENDIENTE DE CONFIRMAR]
-  ├─ ⚙️・backend            existente, se renombra   [PENDIENTE DE CONFIRMAR]
   └─ ❓・ayuda              FORO nuevo · el #ayuda de texto actual no se toca ("reemplazado") · requiere Comunidad
 🔊 » VOZ          [👁️ ven y hablan: todos]
   └─ 🔊 General             del bot

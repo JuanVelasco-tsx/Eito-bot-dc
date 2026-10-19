@@ -6,7 +6,9 @@ observo en PSS: cada categoria o canal NUEVO aparece ARRIBA del todo (de ahi el 
 invertido Staff, Equipo, Desarrollo, Estudio…)."""
 
 import itertools
+import json
 import types
+from pathlib import Path
 
 import discord
 
@@ -116,6 +118,7 @@ class FServidor:
         self.roles = [self.default_role, FRol(5, "EITO Setup Bot", 8, 1, managed=True),
                       FRol(DEVELOPER, "Developer", bits(["administrator"]), 1),
                       FRol(6, "Server Booster", 0, 2, managed=True)]
+        self.rol_del_bot = 5                               # su rol mas alto (el que manda en la jerarquia)
         self.canales = {}
         self.llamadas = []
         self.nuevos_arriba = False        # roles nuevos al reves (ver pss_exec)
@@ -130,6 +133,10 @@ class FServidor:
             self.canales[id] = FCanal(self, id, n, t, self.canales.get(cat), position=pos)
 
     # ---- utilidades ----
+    @property
+    def bot_top(self):
+        return (self.get_role(self.rol_del_bot).position, self.rol_del_bot)
+
     def siguiente_id(self):
         return next(self._ids)
 
@@ -216,8 +223,8 @@ def foto(srv, admin=True, permisos=8):
     ]
     roles = [SRol(r.id, r.name, r.position, r.permissions.value, r.colour.value, r.hoist, r.mentionable, r.managed)
              for r in srv.roles]
-    miembros = [SMiembro(i, frozenset()) for i in range(1, 6)]
-    return Snapshot(G, DUENO, BOT, permisos, admin, (srv.get_role(5).position, 5), roles, canales, miembros,
+    miembros = getattr(srv, "miembros", None) or [SMiembro(i, frozenset()) for i in range(1, 6)]
+    return Snapshot(srv.id, srv.owner_id, srv.me.id, permisos, admin, srv.bot_top, roles, canales, miembros,
                     features=frozenset(srv.features))
 
 
@@ -230,7 +237,7 @@ def estado_mensajes(srv, config, estado):
             if not canal or reg.discord_id not in canal.mensajes:
                 resultado[m.key] = "falta"
             else:
-                resultado[m.key] = "existe" if canal.mensajes[reg.discord_id].author.id == BOT else "ajeno"
+                resultado[m.key] = "existe" if canal.mensajes[reg.discord_id].author.id == srv.me.id else "ajeno"
     return resultado
 
 
@@ -244,3 +251,89 @@ def orden_actual(srv):
         hs.sort(key=lambda c: (bucket(c.tipo) == "voz", c.position, c.id))
         hijos[cat.name] = [c.name for c in hs]
     return [c.name for c in cats], hijos
+
+
+# --- PSS REAL: el export del servidor tras el primer !pss aplicar ----------------------------------------------
+EXPORT_REAL = Path(__file__).resolve().parent / "fixtures" / "pss_export_real.json"
+BOT_REAL = 1546632560057000046         # el usuario del bot (aparece en los overrides del export)
+_TIPOS_EXPORT = {"category": "categoria", "text": "text", "news": "news", "forum": "forum", "voice": "voice"}
+
+
+def _permisos(nombres):
+    return discord.Permissions(**{n: True for n in nombres}).value
+
+
+def cargar_export_real(ruta=EXPORT_REAL):
+    return json.loads(Path(ruta).read_text(encoding="utf-8"))
+
+
+class FServidorReal(FServidor):
+    """Copia EXACTA del PSS real (roles, categorias, canales, overwrites y posiciones del export).
+
+    Los miembros no vienen en el export, solo el recuento (6, 5 con Developer): se reconstruyen con
+    el bot, el dueño y cuatro personas mas con Developer, y una sin ningun rol."""
+
+    def __init__(self, export=None, features=("COMMUNITY",)):
+        export = export or cargar_export_real()
+        sv = export["servidor"]
+        self.id, self.owner_id = sv["id"], sv["owner_id"]
+        self.features = set(features)
+        self._ids = itertools.count(1800000000000000000)
+        self.me = FMiembro(BOT_REAL)
+        self.llamadas = []
+        self.nuevos_arriba = False
+        self.canales_arriba = True
+        self._state = types.SimpleNamespace(http=types.SimpleNamespace(bulk_channel_update=self._bulk))
+        self.roles = []
+        for r in export["roles"]:
+            rol = FRol(r["id"], r["nombre"], _permisos(r["permisos"]), r["posicion"], managed=r["managed"],
+                       colour=int(r["color"].lstrip("#"), 16), hoist=r["hoist"], mentionable=r["mencionable"])
+            self.roles.append(rol)
+        self.default_role = self.get_role(self.id)
+        self.rol_del_bot = export["rol_mas_alto_del_bot"]["id"]
+        self.canales = {}
+        for cat in export["categorias"]:
+            self.canales[cat["id"]] = FCanal(self, cat["id"], cat["nombre"], "categoria",
+                                            overwrites=self._overwrites(cat), position=cat["posicion"])
+        for cat in export["categorias"]:
+            for ch in cat["canales"]:
+                self.canales[ch["id"]] = FCanal(
+                    self, ch["id"], ch["nombre"], _TIPOS_EXPORT[ch["tipo"]], self.canales[cat["id"]],
+                    self._overwrites(ch), ch.get("tema"), ch.get("slowmode") or 0, ch.get("limite_usuarios") or 0,
+                    ch["posicion"])
+        for ch in export["canales_sin_categoria"]:
+            self.canales[ch["id"]] = FCanal(self, ch["id"], ch["nombre"], _TIPOS_EXPORT[ch["tipo"]],
+                                           overwrites=self._overwrites(ch), position=ch["posicion"])
+        developer = {r["nombre"]: r["id"] for r in export["roles"]}["Developer"]
+        self.miembros = [SMiembro(BOT_REAL, frozenset({developer}), True), SMiembro(self.owner_id, frozenset({developer}))]
+        self.miembros += [SMiembro(1900 + i, frozenset({developer})) for i in range(3)]
+        self.miembros.append(SMiembro(1999, frozenset()))
+        assert len(self.miembros) == sv["miembros"]
+
+    def _overwrites(self, obj):
+        resultado = {}
+        for o in obj["overrides"]:
+            if o["tipo"] == "rol":
+                entidad = self.get_role(o["id"])
+            else:
+                entidad = self.me if o["id"] == self.me.id else types.SimpleNamespace(id=o["id"])
+            resultado[entidad] = discord.PermissionOverwrite.from_pair(
+                discord.Permissions(_permisos(o["permite"])), discord.Permissions(_permisos(o["niega"])))
+        return resultado
+
+
+def estado_real(export=None):
+    """El contenido de perfil_recursos tras el primer aplicar: {key: Registro}, y los mensajes (del bot)
+    puestos en su canal del servidor falso."""
+    export = export or cargar_export_real()
+    from profiles.pss_plan import Registro
+    return {k: Registro(f["tipo"], f["discord_id"], f.get("canal_id"), f.get("hash"), f["creado"])
+            for k, f in export["perfil_recursos"].items()}
+
+
+def publicar_mensajes_reales(srv, estado):
+    """Los mensajes que dejo el primer aplicar (sus IDs son sinteticos) existen y son del bot."""
+    for reg in estado.values():
+        if reg.tipo == "mensaje":
+            srv.canales[reg.canal_id].mensajes[reg.discord_id] = FMensaje(
+                srv.canales[reg.canal_id], reg.discord_id, srv.me.id, None, None)

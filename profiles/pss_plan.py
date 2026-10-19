@@ -314,6 +314,7 @@ def tiene_comunidad(snap):
 
 
 MOTIVO_COMUNIDAD = "activa Comunidad (Ajustes del servidor → Habilitar la comunidad)"
+MOTIVO_NO_ENCONTRADO = "no encontrado (adoptar): no existe ni por ID ni por nombre; quita adoptar para crearlo"
 
 
 # --- Resolucion ----------------------------------------------------------------------------
@@ -397,6 +398,12 @@ def calcular_plan(config, snap, estado, mensajes_estado):
         reg = estado.get(key)
         return reg is not None and reg.discord_id == obj.id
 
+    def adoptable_perdido(el):
+        """adoptar = true significa «ya existe, usalo»: si no aparece (ni por ID ni por nombre) NO se
+        crea uno nuevo. Solo se recrea si lo creo el bot antes (y alguien lo borro a mano)."""
+        reg = estado.get(el.key)
+        return el.adoptar and not (reg is not None and reg.creado)
+
     def anotar(tipo, key, op, detalle="", obj=None, via="", cambios=None, razon=""):
         accion = Accion(tipo, key, op, detalle, obj.id if obj is not None else None,
                         via, cambios or {}, razon)
@@ -416,7 +423,9 @@ def calcular_plan(config, snap, estado, mensajes_estado):
             continue
         if obj is None:
             faltan = _unir(_sin_permiso(snap, "manage_roles"), _faltan(snap, deseado))
-            if faltan:
+            if adoptable_perdido(r):
+                anotar("rol", r.key, "bloqueado", r.nombre, razon=MOTIVO_NO_ENCONTRADO)
+            elif faltan:
                 anotar("rol", r.key, "bloqueado", r.nombre, razon=_bloqueo_por_permisos(faltan))
             elif n_roles + 1 > MAX_ROLES:
                 anotar("rol", r.key, "bloqueado", r.nombre, razon=f"límite de {MAX_ROLES} roles")
@@ -465,7 +474,9 @@ def calcular_plan(config, snap, estado, mensajes_estado):
         if obj is None:
             faltan = _unir(_sin_permiso(snap, "manage_channels", *(("manage_roles",) if c.overrides else ())),
                            _faltan(snap, _bits_allow(deseados)))
-            if faltan:
+            if adoptable_perdido(c):
+                anotar("categoria", c.key, "bloqueado", c.nombre, razon=MOTIVO_NO_ENCONTRADO)
+            elif faltan:
                 anotar("categoria", c.key, "bloqueado", c.nombre, razon=_bloqueo_por_permisos(faltan))
             elif n_canales + 1 > MAX_CANALES:
                 anotar("categoria", c.key, "bloqueado", c.nombre, razon=f"límite de {MAX_CANALES} canales")
@@ -524,7 +535,9 @@ def calcular_plan(config, snap, estado, mensajes_estado):
         if obj is None:
             faltan = _unir(_sin_permiso(snap, "manage_channels", "manage_roles"),
                            _faltan(snap, _bits_allow(deseados)))
-            if necesita_comunidad and not tiene_comunidad(snap):
+            if adoptable_perdido(c):
+                anotar("canal", c.key, "bloqueado", c.nombre, razon=MOTIVO_NO_ENCONTRADO)
+            elif necesita_comunidad and not tiene_comunidad(snap):
                 anotar("canal", c.key, "bloqueado", c.nombre, razon=MOTIVO_COMUNIDAD)
             elif faltan:
                 anotar("canal", c.key, "bloqueado", c.nombre, razon=_bloqueo_por_permisos(faltan))

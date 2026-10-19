@@ -99,7 +99,7 @@ def test_el_formato_de_nombres_es_emoji_y_punto_medio():
 def test_canales_existentes_renombrados_con_adoptar_y_nombre_actual():
     c = cargar(RUTA_REAL)
     esperado = {"general": "general", "no_relacionado": "no-relacionado", "info_importante": "info-importante",
-                "planificacion_sesiones": "planificación-de-sesiones", "frontend": "frontend", "backend": "backend"}
+                "planificacion_sesiones": "planificación-de-sesiones"}
     for key, actual in esperado.items():
         canal = c.canal(key)
         assert canal.adoptar and canal.nombre_actual == actual and canal.mover, key
@@ -114,7 +114,7 @@ def test_canales_segun_la_estructura_objetivo():
     en = lambda cat: [x.nombre for x in sorted((x for x in c.canales if x.categoria == cat), key=lambda x: x.orden)]
     assert en("cat_estudio") == ["📜・reglas", "📣・anuncios", "ℹ️・info-estudio"]
     assert en("cat_comunidad") == ["💬・general", "📸・showcase", "💡・sugerencias", "🤖・comandos", "🎲・no-relacionado"]
-    assert en("cat_desarrollo") == ["🟥・scripting-luau", "🎨・frontend", "⚙️・backend", "❓・ayuda"]
+    assert en("cat_desarrollo") == ["🟥・scripting-luau", "❓・ayuda"]
     assert en("cat_voz") == ["🔊 General"]
     assert en("cat_equipo") == ["📌・info-importante", "🗓️・planificación-de-sesiones", "Reuniones"]
     assert en("cat_staff") == ["🛡️・registros"]
@@ -128,12 +128,15 @@ def test_canales_segun_la_estructura_objetivo():
         assert c.canal(key).categoria == "cat_equipo" and c.canal(key).sincronizar_permisos, key
     assert c.canal("reuniones").nombre == "Reuniones" and not c.canal("reuniones").adoptar
     # Desarrollo y Comunidad son publicos: nada de sincronizar
-    for key in ("frontend", "backend", "general", "no_relacionado"):
+    for key in ("general", "no_relacionado"):
         assert not c.canal(key).sincronizar_permisos, key
+    # #frontend y #backend los borro el dueño a proposito: el TOML ya no los menciona
+    assert c.canal("frontend") is None and c.canal("backend") is None
+    assert not any("frontend" in x.nombre or "backend" in x.nombre for x in c.canales)
     assert c.canal("voz_general").tipo == "voice" and c.canal("voz_general").overrides == ()
     # hasta 16 canales de texto (texto + anuncios + foros), mas la voz
     no_voz = [x for x in c.canales if x.tipo != "voice"]
-    assert len(no_voz) <= 16 and len([x for x in c.canales if x.tipo == "voice"]) == 2
+    assert len(no_voz) == 13 <= 16 and len([x for x in c.canales if x.tipo == "voice"]) == 2
 
 
 def test_sugerencias_usa_el_nombre_exacto_que_busca_el_comando_de_eito(mod):

@@ -1,0 +1,1128 @@
+{
+ "servidor": {
+  "nombre": "Phantom-Shadows-Studios",
+  "id": 1420403964746268684,
+  "owner_id": 668148837579227137,
+  "miembros": 6
+ },
+ "rol_mas_alto_del_bot": {
+  "nombre": "Developer",
+  "id": 1561497283315638312,
+  "posicion": 1
+ },
+ "roles": [
+  {
+   "nombre": "Server Booster",
+   "id": 1420454012397818006,
+   "posicion": 2,
+   "color": "#f47fff",
+   "hoist": false,
+   "mencionable": false,
+   "managed": true,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": [
+    "create_instant_invite",
+    "add_reactions",
+    "stream",
+    "read_messages",
+    "send_messages",
+    "embed_links",
+    "attach_files",
+    "read_message_history",
+    "mention_everyone",
+    "external_emojis",
+    "connect",
+    "speak",
+    "use_voice_activation",
+    "change_nickname",
+    "use_application_commands",
+    "request_to_speak",
+    "create_public_threads",
+    "create_private_threads",
+    "external_stickers",
+    "send_messages_in_threads",
+    "use_embedded_activities",
+    "use_soundboard",
+    "create_expressions",
+    "create_events",
+    "use_external_sounds",
+    "send_voice_messages",
+    "set_voice_channel_status",
+    "send_polls",
+    "use_external_apps"
+   ]
+  },
+  {
+   "nombre": "UI",
+   "id": 1561526085093425245,
+   "posicion": 1,
+   "color": "#1abc9c",
+   "hoist": false,
+   "mencionable": true,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": []
+  },
+  {
+   "nombre": "Builder",
+   "id": 1561526084049051749,
+   "posicion": 1,
+   "color": "#e67e22",
+   "hoist": false,
+   "mencionable": true,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": []
+  },
+  {
+   "nombre": "Scripter",
+   "id": 1561526081205309560,
+   "posicion": 1,
+   "color": "#9b59b6",
+   "hoist": false,
+   "mencionable": true,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": []
+  },
+  {
+   "nombre": "Miembro",
+   "id": 1561526078932131843,
+   "posicion": 1,
+   "color": "#2ecc71",
+   "hoist": false,
+   "mencionable": false,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": [
+    "add_reactions",
+    "read_messages",
+    "send_messages",
+    "embed_links",
+    "attach_files",
+    "read_message_history"
+   ]
+  },
+  {
+   "nombre": "Colaborador",
+   "id": 1561526078021836912,
+   "posicion": 1,
+   "color": "#3498db",
+   "hoist": true,
+   "mencionable": false,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": [
+    "add_reactions",
+    "read_messages",
+    "send_messages",
+    "embed_links",
+    "attach_files",
+    "read_message_history"
+   ]
+  },
+  {
+   "nombre": "Administrador",
+   "id": 1561526076750958687,
+   "posicion": 1,
+   "color": "#e74c3c",
+   "hoist": true,
+   "mencionable": false,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": [
+    "kick_members",
+    "ban_members",
+    "manage_channels",
+    "manage_guild",
+    "add_reactions",
+    "view_audit_log",
+    "read_messages",
+    "send_messages",
+    "manage_messages",
+    "embed_links",
+    "attach_files",
+    "read_message_history",
+    "mention_everyone",
+    "manage_roles",
+    "moderate_members"
+   ]
+  },
+  {
+   "nombre": "Propietario",
+   "id": 1561526076285657301,
+   "posicion": 1,
+   "color": "#f1c40f",
+   "hoist": true,
+   "mencionable": false,
+   "managed": false,
+   "miembros": 0,
+   "administrador": false,
+   "permisos": []
+  },
+  {
+   "nombre": "EITO Setup Bot",
+   "id": 1561498384320434281,
+   "posicion": 1,
+   "color": "#000000",
+   "hoist": false,
+   "mencionable": false,
+   "managed": true,
+   "miembros": 1,
+   "administrador": true,
+   "permisos": [
+    "administrator"
+   ]
+  },
+  {
+   "nombre": "Developer",
+   "id": 1561497283315638312,
+   "posicion": 1,
+   "color": "#e91e63",
+   "hoist": false,
+   "mencionable": false,
+   "managed": false,
+   "miembros": 5,
+   "administrador": true,
+   "permisos": [
+    "create_instant_invite",
+    "kick_members",
+    "ban_members",
+    "administrator",
+    "manage_channels",
+    "manage_guild",
+    "add_reactions",
+    "view_audit_log",
+    "priority_speaker",
+    "stream",
+    "read_messages",
+    "send_messages",
+    "send_tts_messages",
+    "manage_messages",
+    "embed_links",
+    "attach_files",
+    "read_message_history",
+    "mention_everyone",
+    "external_emojis",
+    "connect",
+    "speak",
+    "mute_members",
+    "deafen_members",
+    "move_members",
+    "use_voice_activation",
+    "change_nickname",
+    "manage_nicknames",
+    "manage_roles",
+    "manage_webhooks",
+    "manage_expressions",
+    "use_application_commands",
+    "manage_events",
+    "manage_threads",
+    "create_public_threads",
+    "create_private_threads",
+    "external_stickers",
+    "send_messages_in_threads",
+    "use_embedded_activities",
+    "moderate_members",
+    "use_soundboard",
+    "create_expressions",
+    "create_events",
+    "use_external_sounds",
+    "send_voice_messages",
+    "set_voice_channel_status",
+    "send_polls",
+    "use_external_apps",
+    "pin_messages",
+    "bypass_slowmode"
+   ]
+  },
+  {
+   "nombre": "@everyone",
+   "id": 1420403964746268684,
+   "posicion": 0,
+   "color": "#000000",
+   "hoist": false,
+   "mencionable": false,
+   "managed": false,
+   "miembros": 6,
+   "administrador": false,
+   "permisos": [
+    "create_instant_invite",
+    "add_reactions",
+    "stream",
+    "read_messages",
+    "send_messages",
+    "embed_links",
+    "attach_files",
+    "read_message_history",
+    "mention_everyone",
+    "external_emojis",
+    "connect",
+    "speak",
+    "use_voice_activation",
+    "change_nickname",
+    "use_application_commands",
+    "request_to_speak",
+    "create_public_threads",
+    "create_private_threads",
+    "external_stickers",
+    "send_messages_in_threads",
+    "use_embedded_activities",
+    "use_soundboard",
+    "create_expressions",
+    "create_events",
+    "use_external_sounds",
+    "send_voice_messages",
+    "set_voice_channel_status",
+    "send_polls",
+    "use_external_apps"
+   ]
+  }
+ ],
+ "categorias": [
+  {
+   "nombre": "🛡️ Staff",
+   "id": 1561526097521156226,
+   "tipo": "category",
+   "posicion": 0,
+   "overrides": [
+    {
+     "objetivo": "@everyone",
+     "tipo": "rol",
+     "id": 1420403964746268684,
+     "permite": [],
+     "niega": [
+      "read_messages"
+     ]
+    },
+    {
+     "objetivo": "usuario:1546632560057000046",
+     "tipo": "usuario",
+     "id": 1546632560057000046,
+     "permite": [
+      "read_messages",
+      "send_messages",
+      "embed_links",
+      "attach_files",
+      "read_message_history"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "Propietario",
+     "tipo": "rol",
+     "id": 1561526076285657301,
+     "permite": [
+      "read_messages"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "Administrador",
+     "tipo": "rol",
+     "id": 1561526076750958687,
+     "permite": [
+      "read_messages"
+     ],
+     "niega": []
+    }
+   ],
+   "canales": [
+    {
+     "nombre": "registros",
+     "id": 1561526116211232899,
+     "tipo": "text",
+     "posicion": 0,
+     "overrides": [
+      {
+       "objetivo": "@everyone",
+       "tipo": "rol",
+       "id": 1420403964746268684,
+       "permite": [],
+       "niega": [
+        "read_messages"
+       ]
+      },
+      {
+       "objetivo": "Propietario",
+       "tipo": "rol",
+       "id": 1561526076285657301,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "usuario:1546632560057000046",
+       "tipo": "usuario",
+       "id": 1546632560057000046,
+       "permite": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "attach_files",
+        "read_message_history"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Administrador",
+       "tipo": "rol",
+       "id": 1561526076750958687,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      }
+     ],
+     "tema": "Registro de moderación del bot.",
+     "nsfw": false,
+     "slowmode": 0
+    }
+   ]
+  },
+  {
+   "nombre": "🔒 Equipo",
+   "id": 1561526096749404190,
+   "tipo": "category",
+   "posicion": 1,
+   "overrides": [
+    {
+     "objetivo": "@everyone",
+     "tipo": "rol",
+     "id": 1420403964746268684,
+     "permite": [],
+     "niega": [
+      "read_messages"
+     ]
+    },
+    {
+     "objetivo": "Colaborador",
+     "tipo": "rol",
+     "id": 1561526078021836912,
+     "permite": [
+      "read_messages"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "Administrador",
+     "tipo": "rol",
+     "id": 1561526076750958687,
+     "permite": [
+      "read_messages"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "usuario:1546632560057000046",
+     "tipo": "usuario",
+     "id": 1546632560057000046,
+     "permite": [
+      "read_messages",
+      "send_messages",
+      "embed_links",
+      "attach_files",
+      "read_message_history"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "Developer",
+     "tipo": "rol",
+     "id": 1561497283315638312,
+     "permite": [
+      "read_messages"
+     ],
+     "niega": []
+    }
+   ],
+   "canales": [
+    {
+     "nombre": "info-importante",
+     "id": 1420403965446721600,
+     "tipo": "text",
+     "posicion": 1,
+     "overrides": [
+      {
+       "objetivo": "@everyone",
+       "tipo": "rol",
+       "id": 1420403964746268684,
+       "permite": [],
+       "niega": [
+        "read_messages"
+       ]
+      },
+      {
+       "objetivo": "Developer",
+       "tipo": "rol",
+       "id": 1561497283315638312,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Administrador",
+       "tipo": "rol",
+       "id": 1561526076750958687,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "usuario:1546632560057000046",
+       "tipo": "usuario",
+       "id": 1546632560057000046,
+       "permite": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "attach_files",
+        "read_message_history"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Colaborador",
+       "tipo": "rol",
+       "id": 1561526078021836912,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      }
+     ],
+     "tema": "Se a de getionar el manejo de informacion crucial por este canal",
+     "nsfw": false,
+     "slowmode": 0
+    },
+    {
+     "nombre": "planificación-de-sesiones",
+     "id": 1420403965446721604,
+     "tipo": "text",
+     "posicion": 2,
+     "overrides": [
+      {
+       "objetivo": "@everyone",
+       "tipo": "rol",
+       "id": 1420403964746268684,
+       "permite": [],
+       "niega": [
+        "read_messages"
+       ]
+      },
+      {
+       "objetivo": "Colaborador",
+       "tipo": "rol",
+       "id": 1561526078021836912,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Administrador",
+       "tipo": "rol",
+       "id": 1561526076750958687,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "usuario:1546632560057000046",
+       "tipo": "usuario",
+       "id": 1546632560057000046,
+       "permite": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "attach_files",
+        "read_message_history"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Developer",
+       "tipo": "rol",
+       "id": 1561497283315638312,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      }
+     ],
+     "tema": null,
+     "nsfw": false,
+     "slowmode": 0
+    },
+    {
+     "nombre": "Reuniones",
+     "id": 1420403965446721607,
+     "tipo": "voice",
+     "posicion": 0,
+     "overrides": [
+      {
+       "objetivo": "@everyone",
+       "tipo": "rol",
+       "id": 1420403964746268684,
+       "permite": [],
+       "niega": [
+        "read_messages"
+       ]
+      },
+      {
+       "objetivo": "Developer",
+       "tipo": "rol",
+       "id": 1561497283315638312,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Administrador",
+       "tipo": "rol",
+       "id": 1561526076750958687,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "usuario:1546632560057000046",
+       "tipo": "usuario",
+       "id": 1546632560057000046,
+       "permite": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "attach_files",
+        "read_message_history"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Colaborador",
+       "tipo": "rol",
+       "id": 1561526078021836912,
+       "permite": [
+        "read_messages"
+       ],
+       "niega": []
+      }
+     ],
+     "limite_usuarios": 0
+    }
+   ]
+  },
+  {
+   "nombre": "💻 Desarrollo",
+   "id": 1561526091103871051,
+   "tipo": "category",
+   "posicion": 2,
+   "overrides": [],
+   "canales": []
+  },
+  {
+   "nombre": "📌 Estudio",
+   "id": 1561526088763449394,
+   "tipo": "category",
+   "posicion": 3,
+   "overrides": [
+    {
+     "objetivo": "@everyone",
+     "tipo": "rol",
+     "id": 1420403964746268684,
+     "permite": [],
+     "niega": [
+      "send_messages",
+      "create_public_threads",
+      "send_messages_in_threads"
+     ]
+    },
+    {
+     "objetivo": "Administrador",
+     "tipo": "rol",
+     "id": 1561526076750958687,
+     "permite": [
+      "send_messages"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "usuario:1546632560057000046",
+     "tipo": "usuario",
+     "id": 1546632560057000046,
+     "permite": [
+      "read_messages",
+      "send_messages",
+      "embed_links",
+      "attach_files",
+      "read_message_history"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "Developer",
+     "tipo": "rol",
+     "id": 1561497283315638312,
+     "permite": [
+      "send_messages"
+     ],
+     "niega": []
+    }
+   ],
+   "canales": [
+    {
+     "nombre": "reglas",
+     "id": 1561526101207941251,
+     "tipo": "text",
+     "posicion": 5,
+     "overrides": [
+      {
+       "objetivo": "@everyone",
+       "tipo": "rol",
+       "id": 1420403964746268684,
+       "permite": [],
+       "niega": [
+        "send_messages",
+        "create_public_threads",
+        "send_messages_in_threads"
+       ]
+      },
+      {
+       "objetivo": "Administrador",
+       "tipo": "rol",
+       "id": 1561526076750958687,
+       "permite": [
+        "send_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "usuario:1546632560057000046",
+       "tipo": "usuario",
+       "id": 1546632560057000046,
+       "permite": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "attach_files",
+        "read_message_history"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Developer",
+       "tipo": "rol",
+       "id": 1561497283315638312,
+       "permite": [
+        "send_messages"
+       ],
+       "niega": []
+      }
+     ],
+     "tema": "Información del estudio, normas y guía para empezar.",
+     "nsfw": false,
+     "slowmode": 0
+    }
+   ]
+  },
+  {
+   "nombre": "🟥 Roblox",
+   "id": 1561526092697964554,
+   "tipo": "category",
+   "posicion": 4,
+   "overrides": [],
+   "canales": [
+    {
+     "nombre": "scripting-luau",
+     "id": 1561526108846039092,
+     "tipo": "text",
+     "posicion": 6,
+     "overrides": [],
+     "tema": "Scripting en Luau.",
+     "nsfw": false,
+     "slowmode": 0
+    }
+   ]
+  },
+  {
+   "nombre": "📢 Anuncios",
+   "id": 1561526087098433587,
+   "tipo": "category",
+   "posicion": 5,
+   "overrides": [
+    {
+     "objetivo": "@everyone",
+     "tipo": "rol",
+     "id": 1420403964746268684,
+     "permite": [],
+     "niega": [
+      "send_messages",
+      "create_public_threads",
+      "send_messages_in_threads"
+     ]
+    },
+    {
+     "objetivo": "Administrador",
+     "tipo": "rol",
+     "id": 1561526076750958687,
+     "permite": [
+      "send_messages"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "usuario:1546632560057000046",
+     "tipo": "usuario",
+     "id": 1546632560057000046,
+     "permite": [
+      "read_messages",
+      "send_messages",
+      "embed_links",
+      "attach_files",
+      "read_message_history"
+     ],
+     "niega": []
+    },
+    {
+     "objetivo": "Developer",
+     "tipo": "rol",
+     "id": 1561497283315638312,
+     "permite": [
+      "send_messages"
+     ],
+     "niega": []
+    }
+   ],
+   "canales": [
+    {
+     "nombre": "anuncios",
+     "id": 1561526099790397443,
+     "tipo": "text",
+     "posicion": 7,
+     "overrides": [
+      {
+       "objetivo": "@everyone",
+       "tipo": "rol",
+       "id": 1420403964746268684,
+       "permite": [],
+       "niega": [
+        "send_messages",
+        "create_public_threads",
+        "send_messages_in_threads"
+       ]
+      },
+      {
+       "objetivo": "Administrador",
+       "tipo": "rol",
+       "id": 1561526076750958687,
+       "permite": [
+        "send_messages"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "usuario:1546632560057000046",
+       "tipo": "usuario",
+       "id": 1546632560057000046,
+       "permite": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "attach_files",
+        "read_message_history"
+       ],
+       "niega": []
+      },
+      {
+       "objetivo": "Developer",
+       "tipo": "rol",
+       "id": 1561497283315638312,
+       "permite": [
+        "send_messages"
+       ],
+       "niega": []
+      }
+     ],
+     "tema": "Novedades y avisos oficiales del estudio.",
+     "nsfw": false,
+     "slowmode": 0
+    }
+   ]
+  },
+  {
+   "nombre": "💬 Comunidad",
+   "id": 1561526090894282762,
+   "tipo": "category",
+   "posicion": 6,
+   "overrides": [],
+   "canales": [
+    {
+     "nombre": "general",
+     "id": 1420403965446721602,
+     "tipo": "text",
+     "posicion": 8,
+     "overrides": [],
+     "tema": null,
+     "nsfw": false,
+     "slowmode": 0
+    },
+    {
+     "nombre": "no-relacionado",
+     "id": 1420403965446721605,
+     "tipo": "text",
+     "posicion": 9,
+     "overrides": [],
+     "tema": null,
+     "nsfw": false,
+     "slowmode": 0
+    },
+    {
+     "nombre": "showcase",
+     "id": 1561526105284812922,
+     "tipo": "text",
+     "posicion": 10,
+     "overrides": [],
+     "tema": "Enseña lo que estás haciendo: capturas, clips y proyectos propios.",
+     "nsfw": false,
+     "slowmode": 0
+    }
+   ]
+  },
+  {
+   "nombre": "🛠️ Soporte",
+   "id": 1561526093884686407,
+   "tipo": "category",
+   "posicion": 7,
+   "overrides": [],
+   "canales": [
+    {
+     "nombre": "ayuda",
+     "id": 1420403965446721603,
+     "tipo": "text",
+     "posicion": 11,
+     "overrides": [],
+     "tema": null,
+     "nsfw": false,
+     "slowmode": 0
+    }
+   ]
+  },
+  {
+   "nombre": "🔊 Voz",
+   "id": 1561526094866415647,
+   "tipo": "category",
+   "posicion": 8,
+   "overrides": [],
+   "canales": [
+    {
+     "nombre": "🔊 General",
+     "id": 1561526110963896381,
+     "tipo": "voice",
+     "posicion": 1,
+     "overrides": [],
+     "limite_usuarios": 0
+    }
+   ]
+  }
+ ],
+ "canales_sin_categoria": [],
+ "perfil_recursos": {
+  "propietario": {
+   "tipo": "rol",
+   "discord_id": 1561526076285657301,
+   "creado": true
+  },
+  "administrador": {
+   "tipo": "rol",
+   "discord_id": 1561526076750958687,
+   "creado": true
+  },
+  "developer": {
+   "tipo": "rol",
+   "discord_id": 1561497283315638312,
+   "creado": false
+  },
+  "colaborador": {
+   "tipo": "rol",
+   "discord_id": 1561526078021836912,
+   "creado": true
+  },
+  "miembro": {
+   "tipo": "rol",
+   "discord_id": 1561526078932131843,
+   "creado": true
+  },
+  "scripter": {
+   "tipo": "rol",
+   "discord_id": 1561526081205309560,
+   "creado": true
+  },
+  "builder": {
+   "tipo": "rol",
+   "discord_id": 1561526084049051749,
+   "creado": true
+  },
+  "ui": {
+   "tipo": "rol",
+   "discord_id": 1561526085093425245,
+   "creado": true
+  },
+  "cat_anuncios": {
+   "tipo": "categoria",
+   "discord_id": 1561526087098433587,
+   "creado": true
+  },
+  "cat_estudio": {
+   "tipo": "categoria",
+   "discord_id": 1561526088763449394,
+   "creado": true
+  },
+  "cat_comunidad": {
+   "tipo": "categoria",
+   "discord_id": 1561526090894282762,
+   "creado": true
+  },
+  "cat_desarrollo": {
+   "tipo": "categoria",
+   "discord_id": 1561526091103871051,
+   "creado": true
+  },
+  "cat_roblox": {
+   "tipo": "categoria",
+   "discord_id": 1561526092697964554,
+   "creado": true
+  },
+  "cat_soporte": {
+   "tipo": "categoria",
+   "discord_id": 1561526093884686407,
+   "creado": true
+  },
+  "cat_voz": {
+   "tipo": "categoria",
+   "discord_id": 1561526094866415647,
+   "creado": true
+  },
+  "cat_equipo": {
+   "tipo": "categoria",
+   "discord_id": 1561526096749404190,
+   "creado": true
+  },
+  "cat_staff": {
+   "tipo": "categoria",
+   "discord_id": 1561526097521156226,
+   "creado": true
+  },
+  "anuncios": {
+   "tipo": "canal",
+   "discord_id": 1561526099790397443,
+   "creado": true
+  },
+  "reglas": {
+   "tipo": "canal",
+   "discord_id": 1561526101207941251,
+   "creado": true
+  },
+  "general": {
+   "tipo": "canal",
+   "discord_id": 1420403965446721602,
+   "creado": false
+  },
+  "showcase": {
+   "tipo": "canal",
+   "discord_id": 1561526105284812922,
+   "creado": true
+  },
+  "no_relacionado": {
+   "tipo": "canal",
+   "discord_id": 1420403965446721605,
+   "creado": false
+  },
+  "frontend": {
+   "tipo": "canal",
+   "discord_id": 1420472709015666820,
+   "creado": false
+  },
+  "backend": {
+   "tipo": "canal",
+   "discord_id": 1446142574455947325,
+   "creado": false
+  },
+  "scripting_luau": {
+   "tipo": "canal",
+   "discord_id": 1561526108846039092,
+   "creado": true
+  },
+  "ayuda": {
+   "tipo": "canal",
+   "discord_id": 1420403965446721603,
+   "creado": false
+  },
+  "voz_general": {
+   "tipo": "canal",
+   "discord_id": 1561526110963896381,
+   "creado": true
+  },
+  "info_importante": {
+   "tipo": "canal",
+   "discord_id": 1420403965446721600,
+   "creado": false
+  },
+  "planificacion_sesiones": {
+   "tipo": "canal",
+   "discord_id": 1420403965446721604,
+   "creado": false
+  },
+  "reuniones": {
+   "tipo": "canal",
+   "discord_id": 1420403965446721607,
+   "creado": false
+  },
+  "registros": {
+   "tipo": "canal",
+   "discord_id": 1561526116211232899,
+   "creado": true
+  },
+  "msg_info_estudio": {
+   "tipo": "mensaje",
+   "discord_id": 1700000000000000001,
+   "canal_id": 1561526101207941251,
+   "hash": "0637a68adf56cc779c27d07e2ab2bcc36452d589c881dd6235cca922cb0c7f1d",
+   "creado": true
+  },
+  "msg_reglas": {
+   "tipo": "mensaje",
+   "discord_id": 1700000000000000002,
+   "canal_id": 1561526101207941251,
+   "hash": "0235184bbce73c9116a2682a367b57f5d1a81db42b777c238a46372732155633",
+   "creado": true
+  },
+  "msg_guia": {
+   "tipo": "mensaje",
+   "discord_id": 1700000000000000003,
+   "canal_id": 1561526101207941251,
+   "hash": "f80bab13b9897f771c3941f5e83613ee67bb4791c5a63995775643daa708a16f",
+   "creado": true
+  },
+  "msg_especialidades": {
+   "tipo": "mensaje",
+   "discord_id": 1700000000000000004,
+   "canal_id": 1561526101207941251,
+   "hash": "3cc78862e57833857bdc5de6cdac07a156b9221febf5e859ea3446190d57f438",
+   "creado": true
+  }
+ },
+ "_nota": "Export real de PSS tras el primer !pss aplicar (eito_export_1420403964746268684 (2).json) + 'perfil_recursos' (mapa de la BD que dejo esa aplicacion, derivado de pss_v1.toml). Supuestos: los IDs de los 4 mensajes de #reglas son sinteticos (1700000000000000001..4) y se asumen publicados por el bot; los miembros (el export solo da recuentos: 6, 5 con Developer) se reconstruyen en tests/pss_fakes.py."
+}
