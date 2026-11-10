@@ -93,7 +93,7 @@ ROL_LEFTSITO = "Leftsito"
 
 CANAL_MODLOADER = "🔧・l4d2-mod-loader"
 ROL_MODLOADER = "🔔 Mod Loader"
-# Descarga del L4D2 Versus Addon Manager (la muestra el mensaje de presentacion del canal).
+# Descarga de EITOX (la muestra el mensaje de presentacion del canal).
 MODLOADER_URL = "https://www.mediafire.com/file/d512mqnuww1co2v/L4D2+Versus+Addon+Manager_v1.0.0-beta.exe/file"
 
 # --- ROL QUE SE DA AUTOMATICAMENTE AL ENTRAR ---
@@ -2133,7 +2133,7 @@ async def configurar_canal_modloader(ctx):
     historial = [m async for m in canal.history(limit=1)]
     if not historial:
         embed = discord.Embed(
-            title="🔧 L4D2 Versus Addon Manager",
+            title="🔧 EITOX",
             description=(
                 "Gestiona tus addons de la Workshop para jugar Versus con "
                 "varios combinados a la vez, sin reempaquetar VPKs a mano.\n\n"

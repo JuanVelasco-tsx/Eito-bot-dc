@@ -12,7 +12,7 @@ estructura del servidor y añade funciones de comunidad, moderación y niveles.
 - **Moderación**: borrar, kick, ban, mute, warns.
 - **Tickets de soporte** privados con el staff, con transcripción al cerrar.
 - **Utilidades**: encuestas, sugerencias, perfiles de Steam y búsqueda de partida (`!jugar` con botón «Me apunto»).
-- **Avisos de releases** del L4D2 Versus Addon Manager vía webhook HTTP.
+- **Avisos de releases** de EITOX vía webhook HTTP.
 
 ### 🔥 Activo del mes
 
