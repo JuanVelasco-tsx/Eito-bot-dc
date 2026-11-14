@@ -540,6 +540,15 @@ def recortar(texto, limite):
     return texto if len(texto) <= limite else texto[: limite - 1] + "…"
 
 
+WEBHOOK_MAX_CUERPO = 64 * 1024  # bytes; un body mayor recibe 413 sin publicar nada
+
+
+def error_interno(detalle):
+    """500 con un texto generico: el detalle solo va a los logs (Railway), no al cliente."""
+    print(f"⚠️ Webhook de releases: {detalle}")
+    return web.json_response({"error": "Error interno"}, status=500)
+
+
 async def handle_release_webhook(request):
     """POST /release-webhook - recibe notificaciones de nuevas versiones."""
     if not RELEASE_WEBHOOK_SECRET:
@@ -553,6 +562,8 @@ async def handle_release_webhook(request):
         return web.json_response({"error": "No autorizado"}, status=401)
     try:
         data = await request.json()
+    except web.HTTPRequestEntityTooLarge:
+        raise  # mas de WEBHOOK_MAX_CUERPO: aiohttp responde 413
     except Exception:
         return web.json_response({"error": "JSON invalido"}, status=400)
     if not isinstance(data, dict):
@@ -580,25 +591,22 @@ async def handle_release_webhook(request):
             return web.json_response({"error": f"Destino desconocido: {destino}"}, status=400)
         canal, rol_destino = resuelto
         if canal is None:
-            return web.json_response(
-                {"error": f"No se encontro el canal del destino {destino}. Avisa a un admin."}, status=500)
+            return error_interno(f"no se encontro el canal del destino {destino}")
     elif RELEASE_CHANNEL_ID:
         try:
             canal = bot.get_channel(int(RELEASE_CHANNEL_ID))
             if canal is None:
                 canal = await bot.fetch_channel(int(RELEASE_CHANNEL_ID))
-        except Exception as e:
-            return web.json_response(
-                {"error": f"No se pudo encontrar el canal: {e}"}, status=500)
+        except Exception:
+            traceback.print_exc()
+            return error_interno("no se pudo encontrar el canal RELEASE_CHANNEL_ID")
     else:
         for guild in bot.guilds:
             canal = discord.utils.get(guild.text_channels, name=CANAL_MODLOADER)
             if canal is not None:
                 break
         if canal is None:
-            return web.json_response(
-                {"error": f"No se encontro el canal {CANAL_MODLOADER}. Avisa a un admin."},
-                status=500)
+            return error_interno(f"no se encontro el canal {CANAL_MODLOADER}")
 
     if destino is not None:
         rol = rol_destino
@@ -620,9 +628,9 @@ async def handle_release_webhook(request):
             )
         else:
             await canal.send(embed=embed)
-    except Exception as e:
-        return web.json_response(
-            {"error": f"No se pudo enviar el mensaje: {e}"}, status=500)
+    except Exception:
+        traceback.print_exc()
+        return error_interno("no se pudo enviar el mensaje")
     return web.json_response({"ok": True, "version": version}, status=200)
 
 
@@ -631,12 +639,17 @@ async def handle_health(request):
     return web.json_response({"status": "ok", "bot": str(bot.user)})
 
 
-async def start_web_server():
-    """Arranca el servidor web aiohttp en el loop actual sin bloquear al bot."""
-    app = web.Application()
+def crear_app():
+    """La app aiohttp del servidor web: webhook de releases y health check."""
+    app = web.Application(client_max_size=WEBHOOK_MAX_CUERPO)
     app.router.add_post("/release-webhook", handle_release_webhook)
     app.router.add_get("/", handle_health)
-    runner = web.AppRunner(app)
+    return app
+
+
+async def start_web_server():
+    """Arranca el servidor web aiohttp en el loop actual sin bloquear al bot."""
+    runner = web.AppRunner(crear_app())
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEBHOOK_PORT)
     await site.start()

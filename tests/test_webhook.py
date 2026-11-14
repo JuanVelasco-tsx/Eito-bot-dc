@@ -122,9 +122,37 @@ def test_recortar(mod):
     assert mod.recortar("holaa", 4) == "hol…"
 
 
-async def test_sin_canal_de_releases_responde_500(mod, fakes, monkeypatch):
+async def test_sin_canal_de_releases_responde_500(mod, fakes, monkeypatch, capsys):
     monkeypatch.setattr(mod, "RELEASE_CHANNEL_ID", None)
     monkeypatch.setattr(type(mod.bot), "guilds", property(lambda self: []))
     respuesta = await mod.handle_release_webhook(fakes.Peticion(AUTH, {"version": "1.0"}))
     assert respuesta.status == 500
-    assert "Avisa a un admin" in cuerpo(respuesta)["error"]
+    assert cuerpo(respuesta) == {"error": "Error interno"}             # sin detalles para el cliente
+    assert mod.CANAL_MODLOADER in capsys.readouterr().out             # el detalle va a los logs
+
+
+# --- T8: tamano maximo del cuerpo y errores 500 genericos -------------------------------------
+async def test_un_cuerpo_de_mas_de_64_kb_responde_413_sin_publicar(mod, canal_releases):
+    from aiohttp.test_utils import TestClient, TestServer
+
+    grande = json.dumps({"version": "1.0", "changelog": "x" * (64 * 1024)})
+    async with TestClient(TestServer(mod.crear_app())) as cliente:
+        respuesta = await cliente.post("/release-webhook", data=grande, headers=AUTH)
+        assert respuesta.status == 413
+        # Con el mismo servidor, un cuerpo normal sigue publicando
+        normal = await cliente.post("/release-webhook", json={"version": "1.0"}, headers=AUTH)
+        assert normal.status == 200
+    assert len(canal_releases.enviados) == 1
+
+
+async def test_si_falla_el_envio_responde_500_generico_y_el_detalle_va_al_log(mod, fakes, canal_releases, capsys):
+    async def falla(*args, **kwargs):
+        raise RuntimeError("detalle-secreto-de-discord")
+
+    canal_releases.send = falla
+    respuesta = await mod.handle_release_webhook(fakes.Peticion(AUTH, {"version": "1.0"}))
+    assert respuesta.status == 500
+    assert cuerpo(respuesta) == {"error": "Error interno"}
+    salida = capsys.readouterr()
+    assert "detalle-secreto-de-discord" in salida.out + salida.err
+    assert "detalle-secreto-de-discord" not in respuesta.text

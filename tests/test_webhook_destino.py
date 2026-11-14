@@ -86,10 +86,11 @@ async def test_con_destino_pero_sin_perfil_cargado_es_400_y_no_cae_al_canal_de_e
     assert canal_eito.enviados == []
 
 
-async def test_destino_conocido_pero_sin_canal_creado_es_500_y_no_cae_al_de_eito(mod, fakes, canal_eito, pss, perfil):
+async def test_destino_conocido_pero_sin_canal_creado_es_500_y_no_cae_al_de_eito(mod, fakes, canal_eito, pss, perfil, capsys):
     perfil.ids = {}                                       # el perfil aun no se ha aplicado
     respuesta = await mod.handle_release_webhook(pedido(fakes, destino="pss"))
-    assert respuesta.status == 500 and "No se encontro el canal del destino pss" in cuerpo(respuesta)["error"]
+    assert respuesta.status == 500 and cuerpo(respuesta) == {"error": "Error interno"}
+    assert "no se encontro el canal del destino pss" in capsys.readouterr().out
     assert canal_eito.enviados == []
 
 
