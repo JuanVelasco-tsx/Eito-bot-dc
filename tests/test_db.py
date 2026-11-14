@@ -1,12 +1,11 @@
 """Pruebas contra PostgreSQL real (marker `db`).
 
-Se SALTAN por defecto (y en CI, que no tiene Postgres por ahora). Para correrlas:
+Se SALTAN si no hay TEST_DATABASE_URL (en CI corren contra el servicio de Postgres). Para correrlas:
 
     TEST_DATABASE_URL=postgresql://usuario:clave@localhost/eito_test pytest -m db
 
 Usa una base de pruebas, nunca la de produccion: crean las tablas y escriben con
-un guild_id aleatorio, sin borrar nada. OJO: estan escritas pero todavia no se han
-ejecutado contra una BD real; revisalas la primera vez que las corras.
+un guild_id aleatorio, sin borrar nada. Ejecutadas contra PostgreSQL 16 real el 2026-11-11.
 """
 
 import asyncio

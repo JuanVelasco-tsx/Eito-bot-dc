@@ -7,6 +7,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # PostgreSQL de pruebas: con TEST_DATABASE_URL las pruebas con marker "db" corren aqui.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +38,8 @@ jobs:
       - name: Compilar
         run: python -m compileall -q -x '(^|\W)\.?venv\W' .
 
-      # Las pruebas con marker "db" se saltan solas: no hay servicio de Postgres todavia.
+      # -rs muestra el motivo de cualquier prueba saltada (deberian ser 0).
       - name: Pruebas
-        run: pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: pytest -q -rs
