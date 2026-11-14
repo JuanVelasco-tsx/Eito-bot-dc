@@ -1,6 +1,7 @@
 # --- Secretos y configuracion local ---
 .env
 *.env
+.env.*
 !.env.example
 
 # --- Datos del bot (no subir la "memoria") ---

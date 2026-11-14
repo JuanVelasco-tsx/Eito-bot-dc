@@ -148,6 +148,30 @@ orden de despliegue y cómo retirarlo: [`docs/phantom-shadows-studios.md`](docs/
    gestiona (roles de plataforma/región, Nivel 10, Activo del mes...). Luego un
    admin corre `!setup` (vista previa) y, si todo está bien, `!setup confirmar`.
 
+### EITO Dev (bot de pruebas en local, Windows + Docker)
+
+Una vez, crea el PostgreSQL de pruebas (persistente) y el archivo `.env.dev`
+(ignorado por git) con el token de la app **EITO Dev** — nunca datos de producción:
+
+```bash
+docker network create eito-dev
+docker run -d --name eito-dev-pg --network eito-dev --restart unless-stopped -e POSTGRES_PASSWORD=<clave> -e POSTGRES_DB=eito_dev -v eito-dev-pgdata:/var/lib/postgresql/data postgres:16
+```
+
+```text
+DISCORD_TOKEN=<token de EITO Dev, sin comillas>
+DATABASE_URL=postgresql://postgres:<clave>@eito-dev-pg:5432/eito_dev
+```
+
+Después, para arrancarlo (Ctrl+C lo para):
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
+```
+
+El script corre el bot con Python 3.12 en Docker y copia el código **sin** `.env`, para que
+no se mezcle ninguna variable de producción.
+
 ## 📖 Comandos
 
 Todos usan el prefijo `!` y **solo funcionan en un servidor**: por mensaje privado el
