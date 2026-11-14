@@ -3593,6 +3593,9 @@ async def contar_voz():
 @contar_voz.before_loop
 async def antes_de_contar_voz():
     await bot.wait_until_ready()
+    # Sin esto, la primera vuelta corre al arrancar: cada reinicio regalaria un tick
+    # de voz a quien ya estaba en un canal. Asi el primer tick llega a los 5 minutos.
+    await asyncio.sleep(VOZ_MINUTOS_TICK * 60)
 
 
 # =====================================================================

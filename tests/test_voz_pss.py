@@ -163,3 +163,23 @@ async def test_en_eito_la_voz_sigue_igual(mod, fakes, contadores):
     contadores["valores"][("1", "voz_minutos")] = 2995
     await mod.contar(guild, 1, "voz_minutos", 5)
     assert m.agregados == [rol]
+
+
+# --- Sin tick de voz inmediato al reiniciar (T6) -------------------------------------------------
+async def test_al_arrancar_el_primer_tick_de_voz_espera_un_tick_entero(mod, monkeypatch):
+    llamadas = []
+
+    async def wait_until_ready():
+        llamadas.append("listo")
+
+    async def sleep(segundos):
+        llamadas.append(("sleep", segundos))
+
+    monkeypatch.setattr(mod.bot, "wait_until_ready", wait_until_ready)
+    monkeypatch.setattr(mod.asyncio, "sleep", sleep)
+    await mod.antes_de_contar_voz()
+    assert llamadas == ["listo", ("sleep", mod.VOZ_MINUTOS_TICK * 60)]
+
+
+def test_el_tick_de_voz_coincide_con_el_intervalo_del_loop(mod):
+    assert mod.contar_voz.minutes == mod.VOZ_MINUTOS_TICK
