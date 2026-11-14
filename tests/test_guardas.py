@@ -1,4 +1,6 @@
-"""Guardas: check global de mensajes privados y tope de !darnivel."""
+"""Guardas: check global de mensajes privados, tope de !darnivel y aviso de nivel unico."""
+
+import asyncio
 
 import pytest
 from discord.ext import commands
@@ -108,3 +110,43 @@ async def test_darnivel_sigue_bloqueado_en_el_servidor_principal(mod, fakes, dar
 
     assert "deshabilitado" in ctx.respuestas[0][0]
     assert darnivel_sin_bd == []
+
+
+# --- Aviso de nivel: una sola vez aunque dos sumas crucen el nivel a la vez (T5) -------------
+async def test_dos_sumas_a_la_vez_que_cruzan_un_nivel_avisan_una_sola_vez(mod, fakes, monkeypatch):
+    assert mod.xp_acumulada(1) == 100  # umbral del nivel 1
+    xp = {"total": 95}
+
+    async def get_user_xp(*args):
+        # Una lectura previa veria 95 en las dos sumas: si sumar_xp volviera a usarla, avisaria dos veces
+        await asyncio.sleep(0)
+        return 95
+
+    async def add_user_xp(g, u, cantidad):
+        # Como el UPSERT real: cada suma ve el total que deja la anterior (95 -> 110 -> 125)
+        await asyncio.sleep(0)
+        xp["total"] += cantidad
+        return xp["total"]
+
+    recompensas = []
+
+    async def otorgar(guild, miembro, previo, nuevo, canal):
+        recompensas.append((previo, nuevo))
+
+    async def sin_efecto(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(mod, "get_user_xp", get_user_xp)
+    monkeypatch.setattr(mod, "add_user_xp", add_user_xp)
+    monkeypatch.setattr(mod, "add_xp_mensual", sin_efecto)
+    monkeypatch.setattr(mod, "otorgar_recompensas", otorgar)
+    guild = fakes.Guild()
+    niveles = guild.canal(mod.CANAL_NIVELES)
+    miembro = fakes.Usuario(9, "Pepe")
+    miembro.guild = guild
+
+    totales = await asyncio.gather(mod.sumar_xp(miembro, 15), mod.sumar_xp(miembro, 15))
+
+    assert sorted(totales) == [110, 125]
+    assert [c for c, _ in niveles.enviados] == [mod.AVISO_NIVEL.format(mencion=miembro.mention, nivel=1)]
+    assert recompensas == [(0, 1)]

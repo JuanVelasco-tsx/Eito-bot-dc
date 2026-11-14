@@ -68,3 +68,25 @@ async def test_permitir_usuario_concurrente_solo_lo_anade_una_vez(guild_id):
         database.permitir_usuario(guild_id, "2", "Mod") for _ in range(5)
     ])
     assert resultados.count(True) == 1
+
+
+async def test_sumar_xp_concurrente_que_cruza_un_nivel_avisa_una_vez(guild_id, mod, fakes, monkeypatch):
+    """T5 contra PostgreSQL real: dos sumas a la vez de 95 a 125 cruzan el nivel 1 (100) una vez."""
+    recompensas = []
+
+    async def otorgar(guild, miembro, previo, nuevo, canal):
+        recompensas.append((previo, nuevo))
+
+    monkeypatch.setattr(mod, "otorgar_recompensas", otorgar)
+    guild = fakes.Guild(id=guild_id)
+    niveles = guild.canal(mod.CANAL_NIVELES)
+    miembro = fakes.Usuario(9, "Pepe")
+    miembro.guild = guild
+    await database.add_user_xp(guild_id, "9", 95)
+
+    totales = await asyncio.gather(mod.sumar_xp(miembro, 15), mod.sumar_xp(miembro, 15))
+
+    assert sorted(totales) == [110, 125]
+    assert await database.get_user_xp(guild_id, "9") == 125
+    assert len(niveles.enviados) == 1
+    assert recompensas == [(0, 1)]

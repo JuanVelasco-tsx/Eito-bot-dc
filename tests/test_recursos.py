@@ -329,16 +329,12 @@ async def test_xp_en_pss_a_nivel_10_sin_recompensas_mapeadas_no_anuncia_ni_asign
 
     miembro = types.SimpleNamespace(guild=guild, id=9, mention="<@9>", roles=[], add_roles=add_roles)
 
-    async def get_xp(g, u):
-        return mod.xp_acumulada(10) - 1
-
     async def add_xp(g, u, cantidad):
-        return mod.xp_acumulada(10) + 20
+        return mod.xp_acumulada(10) + 20  # venia de xp_acumulada(10) - 1 (suma 21)
 
     async def sin_efecto(*a, **k):
         return None
 
-    monkeypatch.setattr(mod, "get_user_xp", get_xp)
     monkeypatch.setattr(mod, "add_user_xp", add_xp)
     monkeypatch.setattr(mod, "add_xp_mensual", sin_efecto)
     assert mod.evento_permitido(guild, "xp") is True

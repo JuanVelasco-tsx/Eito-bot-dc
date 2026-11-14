@@ -94,16 +94,12 @@ async def test_anuncio_everyone_sigue_funcionando(mod, fakes, efectivo):
 
 
 async def test_subida_de_nivel_menciona_al_usuario(mod, fakes, efectivo, monkeypatch):
-    async def get_user_xp(*args):
-        return 0
-
     async def add_user_xp(*args):
         return 200  # nivel 1
 
     async def sin_efecto(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(mod, "get_user_xp", get_user_xp)
     monkeypatch.setattr(mod, "add_user_xp", add_user_xp)
     monkeypatch.setattr(mod, "add_xp_mensual", sin_efecto)
     monkeypatch.setattr(mod, "otorgar_recompensas", sin_efecto)

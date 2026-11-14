@@ -102,7 +102,8 @@ async def test_sumar_xp_sin_perfil_sigue_funcionando(mod, fakes, monkeypatch):
     monkeypatch.setattr(mod, "add_xp_mensual", add_mensual)
     miembro = fakes.Usuario(1)
     miembro.guild = fakes.Guild()
-    assert await mod.sumar_xp(miembro, 15) == 15 and llamadas == ["get"]
+    # El nivel previo sale de lo que devuelve add_user_xp: ya no hay lectura previa (T5)
+    assert await mod.sumar_xp(miembro, 15) == 15 and llamadas == []
 
 
 # --- Con un perfil que desactiva cosas -----------------------------------------------------------------
@@ -136,6 +137,7 @@ async def test_sumar_xp_no_hace_nada_si_el_perfil_la_apaga(mod, con_perfil, monk
         raise AssertionError("no debe tocar la BD")
 
     monkeypatch.setattr(mod, "get_user_xp", prohibido)
+    monkeypatch.setattr(mod, "add_user_xp", prohibido)
     miembro = types.SimpleNamespace(guild=object(), id=1)
     assert await mod.sumar_xp(miembro, 15) == 0
 

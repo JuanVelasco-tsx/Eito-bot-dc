@@ -843,8 +843,10 @@ async def sumar_xp(miembro, cantidad, canal_fallback=None):
     if not evento_permitido(guild, "xp"):
         return 0
     gid, uid = str(guild.id), str(miembro.id)
-    nivel_previo = nivel_desde_xp(await get_user_xp(gid, uid))
     xp_total = await add_user_xp(gid, uid, cantidad)
+    # El nivel previo sale del total que devuelve el UPSERT atomico, no de una lectura
+    # anterior: asi dos sumas a la vez no pueden ver las dos el mismo cruce de nivel.
+    nivel_previo = nivel_desde_xp(xp_total - cantidad)
     nivel_nuevo = nivel_desde_xp(xp_total)
 
     # Misma XP al acumulado del mes actual (UTC) para el Activo del mes.
